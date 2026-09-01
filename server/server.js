@@ -27,40 +27,36 @@ const mistral = new Mistral({
   apiKey: process.env.MISTRAL_API_KEY,
 });
 
-// Security middleware
-app.use(helmet());
+// Security middleware with cross-origin support
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 
-// Enhanced CORS configuration for mobile support
-const allowedOrigins = CLIENT_URL.split(",").map(url => url.trim());
+// ULTRA-PERMISSIVE CORS - Allows ALL origins
+app.use((req, res, next) => {
+  const origin = req.headers.origin || "*";
+  
+  res.header("Access-Control-Allow-Origin", origin);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  res.header("Access-Control-Max-Age", "86400");
+  
+  // Handle preflight OPTIONS requests
+  if (req.method === "OPTIONS") {
+    return res.status(204).send();
+  }
+  
+  next();
+});
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // Allow requests with no origin (mobile apps, curl, etc.)
-      if (!origin) {
-        return callback(null, true);
-      }
-      
-      // Check if origin is in allowed list
-      if (allowedOrigins.indexOf(origin) !== -1 || NODE_ENV === "development") {
-        callback(null, true);
-      } else {
-        console.log("CORS blocked origin:", origin);
-        // Temporarily allow all origins for mobile compatibility
-        // Remove this in production if you want strict CORS
-        callback(null, true);
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-    preflightContinue: false,
-    optionsSuccessStatus: 204,
-  })
-);
-
-// Handle preflight requests
-app.options("*", cors());
+// CORS middleware (backup)
+app.use(cors({
+  origin: true,
+  credentials: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+}));
 
 app.use(express.json({ limit: "100kb" }));
 
@@ -341,6 +337,6 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📍 Environment: ${NODE_ENV}`);
-  console.log(`🔒 CORS enabled for: ${CLIENT_URL}`);
+  console.log(`🔒 CORS: All origins allowed (mobile compatible)`);
   console.log(`⚡ Rate limit: ${RATE_LIMIT_MAX} requests per ${RATE_LIMIT_WINDOW_MS / 1000 / 60} minutes`);
 });
