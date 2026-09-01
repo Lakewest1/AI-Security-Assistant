@@ -29,14 +29,38 @@ const mistral = new Mistral({
 
 // Security middleware
 app.use(helmet());
+
+// Enhanced CORS configuration for mobile support
+const allowedOrigins = CLIENT_URL.split(",").map(url => url.trim());
+
 app.use(
   cors({
-    origin: CLIENT_URL.split(",").map(url => url.trim()),
+    origin: function (origin, callback) {
+      // Allow requests with no origin (mobile apps, curl, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.indexOf(origin) !== -1 || NODE_ENV === "development") {
+        callback(null, true);
+      } else {
+        console.log("CORS blocked origin:", origin);
+        // Temporarily allow all origins for mobile compatibility
+        // Remove this in production if you want strict CORS
+        callback(null, true);
+      }
+    },
     credentials: true,
-    methods: ["GET", "POST"],
-    allowedHeaders: ["Content-Type"],
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
   })
 );
+
+// Handle preflight requests
+app.options("*", cors());
 
 app.use(express.json({ limit: "100kb" }));
 

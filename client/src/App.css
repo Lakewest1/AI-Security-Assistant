@@ -1,8 +1,6 @@
 /* ==========================================================================
    AI Security Assistant - Modern Chat Interface
-   Preserves all features: Markdown, Code highlighting, Copy buttons,
-   Auto-scroll, Dark mode, Suggestions, Clear chat, Typing animation,
-   Intent badges, Visual cards, Character counter
+   Mobile-First Responsive Design
    ========================================================================== */
 
 * {
@@ -33,7 +31,7 @@
   
   /* Typography */
   --font-sans: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  --font-mono: 'SFMono-Regular', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
   
   /* Spacing */
   --spacing-xs: 4px;
@@ -82,6 +80,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background 0.2s ease, color 0.2s ease;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 button {
@@ -89,10 +91,16 @@ button {
   cursor: pointer;
   border: none;
   background: none;
+  min-width: 0;
 }
 
 textarea {
   font-family: inherit;
+  min-width: 0;
+}
+
+img, svg, video, canvas {
+  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -103,6 +111,9 @@ textarea {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* ==========================================================================
@@ -117,27 +128,32 @@ textarea {
   border-bottom: 1px solid var(--border);
   backdrop-filter: blur(8px);
   background: color-mix(in srgb, var(--surface) 92%, transparent);
+  width: 100%;
+  max-width: 100%;
 }
 
 .header-content {
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 0 var(--spacing-md);
   height: 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
 }
 
 .header-left {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  min-width: 0;
 }
 
 .logo {
   font-size: 24px;
   line-height: 1;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -148,6 +164,9 @@ textarea {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dark .header-title {
@@ -160,11 +179,15 @@ textarea {
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .header-actions {
   display: flex;
   gap: var(--spacing-sm);
+  flex-shrink: 0;
 }
 
 .theme-toggle, .clear-button {
@@ -176,6 +199,7 @@ textarea {
   font-weight: 500;
   font-size: 13px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .theme-toggle:hover, .clear-button:hover {
@@ -195,7 +219,7 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
   padding: 10px 20px;
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   width: 100%;
 }
@@ -224,12 +248,13 @@ textarea {
 .chat-container {
   flex: 1;
   width: 100%;
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   padding: var(--spacing-md);
   display: flex;
   flex-direction: column;
   min-height: 0;
+  box-sizing: border-box;
 }
 
 /* ==========================================================================
@@ -263,6 +288,9 @@ textarea {
   background: var(--surface);
   transition: all 0.15s ease;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .suggestion-chip:hover {
@@ -283,21 +311,25 @@ textarea {
   padding: var(--spacing-lg) 0;
   min-height: 0;
   scroll-behavior: smooth;
+  width: 100%;
+  max-width: 100%;
 }
 
 .message {
   margin-bottom: var(--spacing-xl);
   animation: slideIn 0.25s ease;
   max-width: 100%;
+  width: 100%;
 }
 
 .message.user {
   margin-left: auto;
-  max-width: 85%;
+  max-width: min(85%, 680px);
 }
 
 .message.assistant {
   margin-right: auto;
+  max-width: 100%;
 }
 
 @keyframes slideIn {
@@ -316,6 +348,7 @@ textarea {
   align-items: center;
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-xs);
+  flex-wrap: wrap;
 }
 
 .message.user .message-meta {
@@ -341,6 +374,9 @@ textarea {
 
 .message-content {
   position: relative;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 /* User Message */
@@ -353,13 +389,16 @@ textarea {
   font-size: 15px;
   line-height: 1.5;
   word-wrap: break-word;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-shadow: 0 2px 8px rgba(37, 99, 235, 0.2);
 }
 
 /* Assistant Message */
 .message.assistant .message-content {
   padding: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content {
@@ -367,6 +406,8 @@ textarea {
   line-height: 1.65;
   color: var(--text);
   max-width: 75ch;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .plain-message {
@@ -375,6 +416,8 @@ textarea {
   color: var(--text);
   white-space: pre-wrap;
   word-wrap: break-word;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .message.error .plain-message {
@@ -404,6 +447,8 @@ textarea {
   font-weight: 600;
   line-height: 1.3;
   letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content h1:first-child,
@@ -438,12 +483,14 @@ textarea {
 .markdown-content ul,
 .markdown-content ol {
   margin: 0.5em 0;
-  padding-left: 1.5em;
+  padding-left: 1.35rem;
 }
 
 .markdown-content li {
   margin: 0.25em 0;
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content li > ul,
@@ -465,6 +512,8 @@ textarea {
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.15s ease;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content a:hover {
@@ -478,6 +527,8 @@ textarea {
   background: var(--primary-light);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdown-content hr {
@@ -497,6 +548,8 @@ textarea {
   color: var(--primary);
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -509,6 +562,8 @@ textarea {
   overflow: hidden;
   background: var(--code-bg);
   box-shadow: var(--shadow-sm);
+  width: 100%;
+  max-width: 100%;
 }
 
 .code-header {
@@ -518,6 +573,8 @@ textarea {
   padding: 8px 12px;
   background: var(--code-header);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .code-language {
@@ -535,6 +592,7 @@ textarea {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 4px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .code-copy-button:hover {
@@ -546,9 +604,11 @@ textarea {
   margin: 0 !important;
   padding: 12px !important;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
+  max-width: 100%;
 }
 
 /* ==========================================================================
@@ -558,8 +618,11 @@ textarea {
 .table-wrapper {
   margin: 0.8em 0;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  width: 100%;
+  max-width: 100%;
 }
 
 .markdown-content table {
@@ -595,6 +658,8 @@ textarea {
   border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--surface);
+  width: 100%;
+  max-width: 100%;
 }
 
 .visual-card-header {
@@ -611,6 +676,7 @@ textarea {
 
 .visual-icon {
   font-size: 16px;
+  flex-shrink: 0;
 }
 
 .visual-card-body {
@@ -656,6 +722,7 @@ textarea {
   margin-top: var(--spacing-xs);
   display: flex;
   gap: var(--spacing-xs);
+  flex-wrap: wrap;
 }
 
 .message-action-btn {
@@ -664,6 +731,7 @@ textarea {
   color: var(--text-tertiary);
   border-radius: var(--radius-sm);
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
 .message-action-btn:hover {
@@ -753,6 +821,8 @@ textarea {
   bottom: 0;
   background: linear-gradient(to top, var(--bg) 80%, transparent);
   padding-top: var(--spacing-md);
+  width: 100%;
+  max-width: 100%;
 }
 
 .composer-box {
@@ -765,6 +835,8 @@ textarea {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   transition: all 0.15s ease;
+  width: 100%;
+  max-width: 100%;
 }
 
 .composer-box:focus-within {
@@ -784,6 +856,8 @@ textarea {
   padding: var(--spacing-sm);
   min-height: 24px;
   max-height: 200px;
+  width: 100%;
+  min-width: 0;
 }
 
 .composer textarea::placeholder {
@@ -805,6 +879,7 @@ textarea {
   transition: all 0.15s ease;
   white-space: nowrap;
   box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+  flex-shrink: 0;
 }
 
 .send-button:hover:not(:disabled) {
@@ -831,12 +906,14 @@ textarea {
   font-size: 11px;
   color: var(--text-tertiary);
   margin-right: var(--spacing-sm);
+  white-space: nowrap;
 }
 
 /* ==========================================================================
    Responsive Design
    ========================================================================== */
 
+/* Tablet */
 @media (max-width: 768px) {
   .chat-container {
     padding: var(--spacing-sm);
@@ -847,7 +924,7 @@ textarea {
   }
   
   .message.user {
-    max-width: 90%;
+    max-width: 88%;
   }
   
   .markdown-content {
@@ -873,13 +950,78 @@ textarea {
   }
 }
 
-@media (max-width: 480px) {
+/* Mobile */
+@media (max-width: 600px) {
   .chat-container {
-    padding: var(--spacing-xs);
+    padding-left: 16px;
+    padding-right: 16px;
   }
   
   .header-content {
-    padding: 0 var(--spacing-sm);
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  
+  .message.user {
+    max-width: 88%;
+  }
+  
+  .message.assistant {
+    max-width: 100%;
+  }
+  
+  .markdown-content {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  
+  .markdown-content p {
+    margin: 0 0 14px;
+  }
+  
+  .markdown-content h1 {
+    font-size: 1.4rem;
+  }
+  
+  .markdown-content h2 {
+    font-size: 1.2rem;
+  }
+  
+  .markdown-content h3 {
+    font-size: 1.05rem;
+  }
+  
+  .code-block {
+    border-radius: 9px;
+  }
+  
+  .code-block pre {
+    font-size: 12px !important;
+    padding: 10px !important;
+  }
+  
+  .composer-box {
+    border-radius: 18px;
+  }
+  
+  .composer textarea {
+    font-size: 15px;
+  }
+  
+  .scroll-button {
+    right: 16px;
+    bottom: 100px;
+  }
+  
+  .table-wrapper table {
+    min-width: 520px;
+  }
+}
+
+/* Small Mobile */
+@media (max-width: 480px) {
+  .header-content {
+    height: 52px;
   }
   
   .header-title {
@@ -900,47 +1042,75 @@ textarea {
   }
   
   .message.user {
-    max-width: 95%;
+    max-width: 88%;
   }
   
   .markdown-content {
-    font-size: 13px;
-    line-height: 1.55;
+    font-size: 14.5px;
+    line-height: 1.7;
   }
   
-  .markdown-content h1 {
-    font-size: 1.3em;
-  }
-  
-  .markdown-content h2 {
-    font-size: 1.15em;
-  }
-  
-  .markdown-content h3 {
-    font-size: 1.05em;
-  }
-  
-  .code-block pre {
-    font-size: 12px;
-    padding: 10px !important;
+  .message.user .message-content {
+    padding: 10px 14px;
+    font-size: 15px;
   }
   
   .composer textarea {
-    font-size: 14px;
+    font-size: 15px;
     padding: var(--spacing-xs);
   }
   
   .send-button {
-    padding: 6px 12px;
+    padding: 8px 14px;
     font-size: 13px;
   }
   
   .scroll-button {
-    right: 16px;
-    bottom: 90px;
     width: 36px;
     height: 36px;
     font-size: 16px;
+    right: 14px;
+    bottom: 90px;
+  }
+  
+  .suggestion-chip {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+}
+
+/* Very Small Mobile */
+@media (max-width: 380px) {
+  .chat-container {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  
+  .header-content {
+    padding-left: 13px;
+    padding-right: 13px;
+  }
+  
+  .message.user {
+    max-width: 92%;
+  }
+  
+  .markdown-content {
+    font-size: 14px;
+  }
+  
+  .theme-toggle, .clear-button {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+  
+  .header-title {
+    font-size: 13px;
+  }
+  
+  .send-button {
+    padding: 7px 12px;
+    font-size: 12px;
   }
 }
 

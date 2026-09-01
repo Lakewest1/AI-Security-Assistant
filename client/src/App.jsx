@@ -7,6 +7,61 @@ import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+// Standalone CodeBlock component (fixed React hook issue)
+function CodeBlock({ inline, className, children, ...props }) {
+  const [copied, setCopied] = useState(false);
+
+  const match = /language-(\w+)/.exec(className || "");
+  const code = String(children).replace(/\n$/, "");
+
+  const handleCopyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (error) {
+      console.error("Failed to copy code:", error);
+    }
+  };
+
+  if (!inline && match) {
+    return (
+      <div className="code-block">
+        <div className="code-header">
+          <span className="code-language">{match[1]}</span>
+          <button 
+            className="code-copy-button"
+            onClick={handleCopyCode}
+            aria-label="Copy code"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+        <SyntaxHighlighter
+          style={oneDark}
+          language={match[1]}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            borderRadius: 0,
+            fontSize: '13px',
+            lineHeight: '1.5',
+          }}
+          {...props}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
+    );
+  }
+
+  return (
+    <code className={`inline-code ${className || ''}`} {...props}>
+      {children}
+    </code>
+  );
+}
+
 function App() {
   const [messages, setMessages] = useState([
     {
@@ -80,7 +135,6 @@ function App() {
     
     // For long messages, use chunk-based typing instead of word-by-word
     if (words.length > 100) {
-      // Just show the full message immediately for very long responses
       setMessages(prev => {
         const updated = [...prev];
         updated[updated.length - 1] = {
@@ -105,7 +159,6 @@ function App() {
         };
         return updated;
       });
-      // Adjust speed based on message length
       const delay = words.length > 50 ? 15 : 25;
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -158,7 +211,6 @@ function App() {
         setIntents(data.intents);
       }
 
-      // Add AI response with typing effect
       setMessages(prev => [...prev, {
         role: "assistant",
         content: "",
@@ -278,7 +330,6 @@ function App() {
         </div>
       </header>
 
-      {/* Display detected intents */}
       {intents.length > 0 && (
         <div className="intent-badges">
           {intents.map((intent) => (
@@ -336,54 +387,7 @@ function App() {
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          code({ inline, className, children, ...props }) {
-                            const match = /language-(\w+)/.exec(className || "");
-                            const code = String(children).replace(/\n$/, "");
-                            const [copied, setCopied] = useState(false);
-                            
-                            const handleCopyCode = async () => {
-                              try {
-                                await navigator.clipboard.writeText(code);
-                                setCopied(true);
-                                setTimeout(() => setCopied(false), 2000);
-                              } catch (error) {
-                                console.error("Failed to copy code:", error);
-                              }
-                            };
-                            
-                            return !inline && match ? (
-                              <div className="code-block">
-                                <div className="code-header">
-                                  <span className="code-language">{match[1]}</span>
-                                  <button 
-                                    className="code-copy-button"
-                                    onClick={handleCopyCode}
-                                    aria-label="Copy code"
-                                  >
-                                    {copied ? '✓ Copied' : 'Copy'}
-                                  </button>
-                                </div>
-                                <SyntaxHighlighter
-                                  style={oneDark}
-                                  language={match[1]}
-                                  PreTag="div"
-                                  customStyle={{
-                                    margin: 0,
-                                    borderRadius: 0,
-                                    fontSize: '13px',
-                                    lineHeight: '1.5',
-                                  }}
-                                  {...props}
-                                >
-                                  {code}
-                                </SyntaxHighlighter>
-                              </div>
-                            ) : (
-                              <code className={`inline-code ${className || ''}`} {...props}>
-                                {children}
-                              </code>
-                            );
-                          },
+                          code: CodeBlock,
                           table({ children }) {
                             return (
                               <div className="table-wrapper">
