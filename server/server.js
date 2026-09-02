@@ -8,221 +8,435 @@ const { Mistral } = require("@mistralai/mistralai");
 
 const app = express();
 
-// Configuration
-const PORT = process.env.PORT || 5000;
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
-const NODE_ENV = process.env.NODE_ENV || "development";
-const MAX_TOKENS = parseInt(process.env.MAX_TOKENS) || 4096;
-const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
-const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX) || 30;
+/* ==========================================================================
+   Configuration
+   ========================================================================== */
 
-// Validate API key on startup
+const PORT = Number(process.env.PORT) || 5000;
+
+const CLIENT_URL =
+  process.env.CLIENT_URL || "http://localhost:5173";
+
+const NODE_ENV =
+  process.env.NODE_ENV || "development";
+
+const MISTRAL_MODEL =
+  process.env.MISTRAL_MODEL || "mistral-small-latest";
+
+const MAX_TOKENS =
+  Number(process.env.MAX_TOKENS) || 4000;
+
+const RATE_LIMIT_WINDOW_MS =
+  Number(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000;
+
+const RATE_LIMIT_MAX =
+  Number(process.env.RATE_LIMIT_MAX) || 30;
+
+/*
+ * Number of previous messages sent to Mistral.
+ *
+ * Keeping this smaller reduces token usage and makes the chatbot
+ * less likely to hit context/token limits.
+ */
+const MAX_HISTORY_MESSAGES =
+  Number(process.env.MAX_HISTORY_MESSAGES) || 20;
+
+/*
+ * Maximum characters allowed in the entire conversation
+ * sent to the Mistral API.
+ */
+const MAX_CONTEXT_CHARACTERS =
+  Number(process.env.MAX_CONTEXT_CHARACTERS) || 30000;
+
+
+/* ==========================================================================
+   Validate environment
+   ========================================================================== */
+
 if (!process.env.MISTRAL_API_KEY) {
-  console.error("❌ MISTRAL_API_KEY is not set in .env file");
-  process.exit(1);
+  console.error("❌ MISTRAL_API_KEY is missing.");
+
+  if (NODE_ENV === "production") {
+    process.exit(1);
+  }
 }
 
-// Initialize Mistral client
+
+/* ==========================================================================
+   Mistral Client
+   ========================================================================== */
+
 const mistral = new Mistral({
   apiKey: process.env.MISTRAL_API_KEY,
 });
 
-// Security middleware with cross-origin support
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}));
 
-// ULTRA-PERMISSIVE CORS - Allows ALL origins
+/* ==========================================================================
+   Security Middleware
+   ========================================================================== */
+
+app.use(
+  helmet({
+    crossOriginResourcePolicy: {
+      policy: "cross-origin",
+    },
+  })
+);
+
+
+/* ==========================================================================
+   CORS
+   ========================================================================== */
+
+const allowedOrigins = CLIENT_URL
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      /*
+       * Allow requests without an Origin header.
+       * This is useful for curl, health checks, etc.
+       */
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      /*
+       * Development / wildcard mode.
+       */
+      if (
+        allowedOrigins.includes("*") ||
+        NODE_ENV === "development"
+      ) {
+        return callback(null, true);
+      }
+
+      /*
+       * Production whitelist.
+       */
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(
+        new Error("CORS policy: Origin not allowed")
+      );
+    },
+
+    credentials: true,
+
+    methods: [
+      "GET",
+      "POST",
+      "OPTIONS",
+    ],
+
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+    ],
+  })
+);
+
+
+/* ==========================================================================
+   Body Parser
+   ========================================================================== */
+
+app.use(
+  express.json({
+    limit: "200kb",
+  })
+);
+
+
+/* ==========================================================================
+   Request Logger
+   ========================================================================== */
+
 app.use((req, res, next) => {
-  const origin = req.headers.origin || "*";
-  
-  res.header("Access-Control-Allow-Origin", origin);
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
-  res.header("Access-Control-Max-Age", "86400");
-  
-  // Handle preflight OPTIONS requests
-  if (req.method === "OPTIONS") {
-    return res.status(204).send();
+  if (req.path !== "/api/health") {
+    console.log(
+      `${new Date().toISOString()} ${req.method} ${req.path}`
+    );
   }
-  
+
   next();
 });
 
-// CORS middleware (backup)
-app.use(cors({
-  origin: true,
-  credentials: true,
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-}));
 
-app.use(express.json({ limit: "100kb" }));
+/* ==========================================================================
+   Rate Limiting
+   ========================================================================== */
 
-// Rate limiting for chat endpoint
 const chatLimiter = rateLimit({
   windowMs: RATE_LIMIT_WINDOW_MS,
+
   max: RATE_LIMIT_MAX,
-  message: {
-    error: "Too many requests. Please wait before sending more messages.",
-  },
+
   standardHeaders: true,
+
   legacyHeaders: false,
+
+  message: {
+    error:
+      "Too many chat requests. Please wait a moment and try again.",
+  },
+
+  handler: (req, res) => {
+    console.warn(
+      `⚠️ Rate limit reached for ${req.ip}`
+    );
+
+    res.status(429).json({
+      error:
+        "Too many chat requests. Please wait a moment and try again.",
+      retryAfter:
+        Math.ceil(RATE_LIMIT_WINDOW_MS / 1000),
+    });
+  },
 });
 
-// Enhanced security-focused system prompt
-const SYSTEM_PROMPT = `You are an AI Security Assistant specializing in cloud security and modern security engineering.
+
+/* ==========================================================================
+   System Prompt
+   ========================================================================== */
+
+const SYSTEM_PROMPT = `
+You are an AI Security Assistant specializing in cloud security
+and modern security engineering.
 
 PRIMARY EXPERTISE:
-- Cloud Security (AWS, Azure, GCP)
-- Kubernetes Security & Container Security
-- IAM (Identity and Access Management)
-- WAF (Web Application Firewall)
-- SOC Operations & Monitoring
-- Detection Engineering
-- Incident Response & Threat Detection
-- DevSecOps & Security Automation
-- Security Architecture & Zero Trust
-- Cloud Compliance & Governance
 
-SECONDARY KNOWLEDGE (when security-relevant):
-- DevOps, CI/CD Security
+- Cloud Security: AWS, Azure, GCP
+- Kubernetes Security
+- Container Security
+- IAM
+- WAF
+- SOC Operations
+- Detection Engineering
+- Incident Response
+- Threat Detection
+- DevSecOps
+- Security Automation
+- Security Architecture
+- Zero Trust
+- Cloud Compliance
+- Governance
+
+SECONDARY KNOWLEDGE:
+
+- DevOps
+- CI/CD Security
 - API Security
 - Software Architecture
-- React, Node.js, TypeScript security patterns
+- React
+- Node.js
+- TypeScript
 
-FACTUAL ACCURACY RULES:
-- Never invent AWS/Azure/GCP services or features
-- Never fabricate security frameworks or standards
-- If uncertain about a service or feature, explicitly say so
-- Distinguish between official frameworks (NIST, CIS, ISO) and practical approaches
-- Challenge false premises respectfully
-- If a question contains incorrect assumptions, point them out
+FACTUAL ACCURACY:
 
-RESPONSE STRUCTURE (adapt to question):
-For technical/security questions, use this structure when appropriate:
+- Never invent cloud services or features.
+- Never fabricate security frameworks.
+- Never fabricate commands or configuration options.
+- If uncertain, clearly say so.
+- Distinguish official documentation from practical recommendations.
+- Correct incorrect assumptions respectfully.
+
+RESPONSE STYLE:
+
+- Be clear and practical.
+- Write for junior and intermediate security engineers.
+- Avoid unnecessary repetition.
+- Use Markdown.
+- Use headings when useful.
+- Use bullet points for lists.
+- Use numbered steps for procedures.
+- Use code blocks for code.
+- Keep answers focused on the user's question.
+
+SECURITY:
+
+- Recommend least privilege.
+- Prefer secure defaults.
+- Explain important security risks.
+- Mention common mistakes.
+- Do not encourage unsafe production configurations.
+
+For technical questions, use this structure when appropriate:
+
 ## What it is
-Brief, clear explanation
+
+Brief explanation.
 
 ## How it works
-Step-by-step explanation with Markdown
+
+Step-by-step explanation.
 
 ## Example
-Practical example with code/configuration where relevant
+
+Practical example when useful.
 
 ## Security considerations
-Important security implications
+
+Important security implications.
 
 ## Key takeaway
-One or two sentence summary
 
-VISUAL DECISION GUIDELINES:
-- Visual needed: true for architecture, flows, workflows, complex concepts
-- Visual needed: false for definitions, simple facts, troubleshooting
-- Visual query should be specific and searchable
+Short summary.
+`;
 
-RESPONSE GUIDELINES:
-- Explain concepts clearly for junior security engineers
-- Provide practical, actionable examples
-- Highlight security risks and common mistakes
-- Use Markdown formatting appropriately
-- Structure complex explanations step-by-step
-- Include relevant AWS/Azure/GCP service names
-- Mention compliance frameworks only when relevant
-- Prioritize accurate security guidance over satisfying user premises
-- Default to secure configurations
-- Recommend least-privilege access by default`;
 
-// Enhanced intent detection
+/* ==========================================================================
+   Intent Detection
+   ========================================================================== */
+
 function detectIntent(text) {
   const patterns = {
-    code_request: /\b(code|implement|write|function|script|configure|deploy|terraform|cloudformation)\b/i,
-    explanation: /\b(explain|what is|how does|why|describe|difference|understand)\b/i,
-    troubleshooting: /\b(error|issue|problem|bug|fix|debug|failing|broken|not working)\b/i,
-    architecture: /\b(architecture|design|system|scalable|microservices|vpc|network|diagram)\b/i,
-    security: /\b(security|vulnerability|attack|protect|threat|compliance|iam|waf|incident|breach|hack)\b/i,
-    optimization: /\b(optimize|performance|improve|best practice|harden|secure|tune)\b/i,
-    detection: /\b(detect|monitor|alert|siem|soc|log|investigate|forensics)\b/i,
-    devsecops: /\b(devsecops|pipeline|ci\/cd|automation|scan|sast|dast)\b/i,
+    code_request:
+      /\b(code|implement|write|function|script|configure|deploy|terraform|cloudformation)\b/i,
+
+    explanation:
+      /\b(explain|what is|how does|why|describe|difference|understand)\b/i,
+
+    troubleshooting:
+      /\b(error|issue|problem|bug|fix|debug|failing|broken|not working)\b/i,
+
+    architecture:
+      /\b(architecture|design|system|scalable|vpc|network|diagram|topology)\b/i,
+
+    security:
+      /\b(security|vulnerability|attack|protect|threat|compliance|iam|waf|incident|breach|hack)\b/i,
+
+    optimization:
+      /\b(optimize|performance|improve|best practice|harden|secure|tune)\b/i,
+
+    detection:
+      /\b(detect|monitor|alert|siem|soc|log|investigate|forensics)\b/i,
+
+    devsecops:
+      /\b(devsecops|pipeline|ci\/cd|automation|scan|sast|dast)\b/i,
   };
 
   const detected = [];
+
   for (const [intent, pattern] of Object.entries(patterns)) {
     if (pattern.test(text)) {
       detected.push(intent);
     }
   }
+
   return detected;
 }
 
-// Visual decision system
-function shouldIncludeVisual(text, intents) {
-  const visualPatterns = {
-    architecture: /\b(architecture|diagram|flow|topology|structure|components)\b/i,
-    workflow: /\b(workflow|process|steps|pipeline|lifecycle)\b/i,
-    comparison: /\b(compare|difference|versus|vs)\b/i,
-    setup: /\b(setup|configure|deploy|implement|build)\b/i,
-    security_flow: /\b(authentication|authorization|request flow|traffic|routing)\b/i,
-  };
 
-  const shouldShowVisual = Object.values(visualPatterns).some(pattern => 
+/* ==========================================================================
+   Visual Decision
+   ========================================================================== */
+
+function shouldIncludeVisual(text) {
+  const visualPatterns = [
+    /\barchitecture\b/i,
+    /\bdiagram\b/i,
+    /\bflow\b/i,
+    /\btopology\b/i,
+    /\bworkflow\b/i,
+    /\bprocess\b/i,
+    /\bpipeline\b/i,
+    /\blifecycle\b/i,
+    /\bcompare\b/i,
+    /\bdifference\b/i,
+    /\bversus\b/i,
+    /\bvs\b/i,
+    /\bsetup\b/i,
+    /\bconfigure\b/i,
+    /\bdeploy\b/i,
+    /\bauthentication\b/i,
+    /\bauthorization\b/i,
+    /\brouting\b/i,
+  ];
+
+  const needed = visualPatterns.some((pattern) =>
     pattern.test(text)
   );
 
   return {
-    visualNeeded: shouldShowVisual,
-    visualType: shouldShowVisual ? "diagram" : "none",
-    visualQuery: shouldShowVisual ? text.slice(0, 100) : null,
+    visualNeeded: needed,
+    visualType: needed ? "diagram" : "none",
+    visualQuery: needed
+      ? text.slice(0, 100)
+      : null,
   };
 }
 
-// Message validation middleware
+
+/* ==========================================================================
+   Message Validation
+   ========================================================================== */
+
 function validateMessages(req, res, next) {
   const { messages } = req.body;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return res.status(400).json({
-      error: "Messages array is required and cannot be empty",
+      error:
+        "Messages array is required and cannot be empty.",
     });
   }
 
   if (messages.length > 50) {
     return res.status(400).json({
-      error: "Too many messages. Maximum 50 messages allowed per request.",
+      error:
+        "Conversation is too long. Maximum 50 messages allowed.",
     });
   }
 
-  const validRoles = ["user", "assistant", "system"];
-  
+  const validRoles = [
+    "user",
+    "assistant",
+    "system",
+  ];
+
   for (const message of messages) {
     if (!message || typeof message !== "object") {
       return res.status(400).json({
-        error: "Each message must be an object",
+        error:
+          "Each message must be an object.",
       });
     }
 
-    if (!message.role || !validRoles.includes(message.role)) {
+    if (
+      !message.role ||
+      !validRoles.includes(message.role)
+    ) {
       return res.status(400).json({
-        error: `Invalid message role: "${message.role}". Must be one of: ${validRoles.join(", ")}`,
+        error:
+          "Invalid message role.",
       });
     }
 
     if (typeof message.content !== "string") {
       return res.status(400).json({
-        error: "Message content must be a string",
+        error:
+          "Message content must be a string.",
       });
     }
 
     if (!message.content.trim()) {
       return res.status(400).json({
-        error: "Message content cannot be empty or whitespace-only",
+        error:
+          "Message content cannot be empty.",
       });
     }
 
     if (message.content.length > 4000) {
       return res.status(400).json({
-        error: "Message content too long. Maximum 4000 characters per message.",
+        error:
+          "Individual message is too long. Maximum 4000 characters.",
       });
     }
   }
@@ -230,113 +444,442 @@ function validateMessages(req, res, next) {
   next();
 }
 
-// Health check endpoint
+
+/* ==========================================================================
+   Limit Conversation Context
+   ========================================================================== */
+
+function prepareConversation(messages) {
+  /*
+   * Keep only the most recent messages.
+   *
+   * This prevents every request from becoming larger and larger.
+   */
+
+  let selectedMessages =
+    messages.slice(-MAX_HISTORY_MESSAGES);
+
+  /*
+   * Ensure the first message isn't a system message supplied
+   * by the client. Our server controls the system prompt.
+   */
+  selectedMessages = selectedMessages.filter(
+    (message) => message.role !== "system"
+  );
+
+  /*
+   * Protect against excessively large context.
+   */
+  let totalCharacters = 0;
+  const finalMessages = [];
+
+  for (
+    let i = selectedMessages.length - 1;
+    i >= 0;
+    i--
+  ) {
+    const message = selectedMessages[i];
+
+    const messageLength =
+      message.content.length;
+
+    if (
+      totalCharacters + messageLength >
+      MAX_CONTEXT_CHARACTERS
+    ) {
+      break;
+    }
+
+    finalMessages.unshift(message);
+
+    totalCharacters += messageLength;
+  }
+
+  return finalMessages;
+}
+
+
+/* ==========================================================================
+   Health Check
+   ========================================================================== */
+
 app.get("/api/health", (req, res) => {
   res.json({
     status: "healthy",
+    service: "AI Security Assistant API",
+    model: MISTRAL_MODEL,
+    environment: NODE_ENV,
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
   });
 });
 
-// Chat endpoint
-app.post("/api/chat", chatLimiter, validateMessages, async (req, res) => {
-  try {
-    const { messages } = req.body;
 
-    const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-    const intents = lastUserMessage ? detectIntent(lastUserMessage.content) : [];
-    const visualDecision = lastUserMessage ? shouldIncludeVisual(lastUserMessage.content, intents) : { visualNeeded: false, visualType: "none" };
+/* ==========================================================================
+   Chat Endpoint
+   ========================================================================== */
 
-    let enhancedSystemPrompt = SYSTEM_PROMPT;
-    if (intents.length > 0) {
-      enhancedSystemPrompt += `\n\nDetected user intent (regex-based): ${intents.join(", ")}`;
-    }
-    if (visualDecision.visualNeeded) {
-      enhancedSystemPrompt += `\n\nVisual context: User might benefit from a ${visualDecision.visualType} visualization.`;
-    }
+app.post(
+  "/api/chat",
+  chatLimiter,
+  validateMessages,
+  async (req, res) => {
+    const requestStartedAt = Date.now();
 
-    const response = await mistral.chat.complete({
-      model: "mistral-small-latest",
-      messages: [{ role: "system", content: enhancedSystemPrompt }, ...messages],
-      temperature: 0.7,
-      max_tokens: MAX_TOKENS,
-      top_p: 1,
-      safe_mode: false,
-    });
+    try {
+      const { messages } = req.body;
 
-    if (!response.choices || !response.choices[0] || !response.choices[0].message) {
-      throw new Error("Invalid response structure from Mistral API");
-    }
+      /*
+       * Get latest user message.
+       */
+      const lastUserMessage =
+        [...messages]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === "user"
+          );
 
-    const reply = response.choices[0].message.content;
+      if (!lastUserMessage) {
+        return res.status(400).json({
+          error:
+            "At least one user message is required.",
+        });
+      }
 
-    res.json({
-      reply,
-      intents,
-      visual: {
-        needed: visualDecision.visualNeeded,
-        type: visualDecision.visualType,
-        query: visualDecision.visualQuery,
-      },
-      metadata: {
-        timestamp: new Date().toISOString(),
-        model: "mistral-small-latest",
-      },
-    });
-  } catch (error) {
-    console.error("Mistral API error:", error);
+      /*
+       * Detect intent.
+       */
+      const intents = detectIntent(
+        lastUserMessage.content
+      );
 
-    if (error.status === 429) {
-      return res.status(429).json({
-        error: "Mistral API rate limit exceeded. Please try again in a few moments.",
+      /*
+       * Visual decision.
+       */
+      const visualDecision =
+        shouldIncludeVisual(
+          lastUserMessage.content
+        );
+
+      /*
+       * Prepare smaller conversation context.
+       */
+      const conversation =
+        prepareConversation(messages);
+
+      /*
+       * Build system prompt.
+       */
+      let enhancedSystemPrompt =
+        SYSTEM_PROMPT;
+
+      if (intents.length > 0) {
+        enhancedSystemPrompt += `
+
+Detected intent:
+${intents.join(", ")}`;
+      }
+
+      if (visualDecision.visualNeeded) {
+        enhancedSystemPrompt += `
+
+Visual context:
+The user may benefit from a ${visualDecision.visualType} visualization.`;
+      }
+
+      /*
+       * Final messages sent to Mistral.
+       */
+      const mistralMessages = [
+        {
+          role: "system",
+          content: enhancedSystemPrompt,
+        },
+        ...conversation,
+      ];
+
+      console.log(
+        `🤖 Mistral request | model=${MISTRAL_MODEL} | messages=${mistralMessages.length}`
+      );
+
+      /*
+       * Call Mistral.
+       */
+      const response =
+        await mistral.chat.complete({
+          model: MISTRAL_MODEL,
+
+          messages: mistralMessages,
+
+          temperature: 0.7,
+
+          max_tokens: MAX_TOKENS,
+
+          top_p: 1,
+        });
+
+      /*
+       * Validate response.
+       */
+      if (
+        !response ||
+        !response.choices ||
+        !response.choices[0] ||
+        !response.choices[0].message
+      ) {
+        throw new Error(
+          "Invalid response structure returned by Mistral."
+        );
+      }
+
+      const reply =
+        response.choices[0].message.content;
+
+      if (
+        typeof reply !== "string" ||
+        !reply.trim()
+      ) {
+        throw new Error(
+          "Mistral returned an empty response."
+        );
+      }
+
+      const duration =
+        Date.now() - requestStartedAt;
+
+      console.log(
+        `✅ Mistral response received in ${duration}ms`
+      );
+
+      /*
+       * Return response.
+       */
+      return res.json({
+        reply,
+
+        intents,
+
+        visual: {
+          needed:
+            visualDecision.visualNeeded,
+
+          type:
+            visualDecision.visualType,
+
+          query:
+            visualDecision.visualQuery,
+        },
+
+        metadata: {
+          timestamp:
+            new Date().toISOString(),
+
+          model:
+            MISTRAL_MODEL,
+
+          responseTimeMs:
+            duration,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "❌ Mistral API error:",
+        error
+      );
+
+      /*
+       * Log useful information during debugging.
+       */
+      console.error(
+        "Status:",
+        error.status
+      );
+
+      console.error(
+        "Code:",
+        error.code
+      );
+
+      console.error(
+        "Message:",
+        error.message
+      );
+
+
+      /* ---------------------------------------------------------------
+         429 - Provider rate limit / quota
+         --------------------------------------------------------------- */
+
+      if (error.status === 429) {
+        return res.status(429).json({
+          error:
+            "The Mistral API rate limit or quota has been reached. Please try again later.",
+          type:
+            "MISTRAL_RATE_LIMIT",
+        });
+      }
+
+
+      /* ---------------------------------------------------------------
+         401 - Invalid API key
+         --------------------------------------------------------------- */
+
+      if (error.status === 401) {
+        return res.status(401).json({
+          error:
+            "Invalid Mistral API key. Check MISTRAL_API_KEY on Render.",
+          type:
+            "MISTRAL_AUTH_ERROR",
+        });
+      }
+
+
+      /* ---------------------------------------------------------------
+         403 - Permission / account issue
+         --------------------------------------------------------------- */
+
+      if (error.status === 403) {
+        return res.status(403).json({
+          error:
+            "Mistral rejected the request because the API key or account does not have permission.",
+          type:
+            "MISTRAL_PERMISSION_ERROR",
+        });
+      }
+
+
+      /* ---------------------------------------------------------------
+         400 - Bad request / context / token problem
+         --------------------------------------------------------------- */
+
+      if (error.status === 400) {
+        return res.status(400).json({
+          error:
+            "Mistral rejected the request. The conversation may be too large or the request may be invalid.",
+          type:
+            "MISTRAL_BAD_REQUEST",
+        });
+      }
+
+
+      /* ---------------------------------------------------------------
+         Network errors
+         --------------------------------------------------------------- */
+
+      if (
+        error.code === "ECONNREFUSED" ||
+        error.code === "ENOTFOUND" ||
+        error.code === "ETIMEDOUT"
+      ) {
+        return res.status(503).json({
+          error:
+            "Unable to reach the Mistral API. Please try again.",
+          type:
+            "MISTRAL_NETWORK_ERROR",
+        });
+      }
+
+
+      /* ---------------------------------------------------------------
+         Generic error
+         --------------------------------------------------------------- */
+
+      return res.status(500).json({
+        error:
+          "AI request failed. Please try again.",
+
+        type:
+          "MISTRAL_UNKNOWN_ERROR",
+
+        ...(NODE_ENV === "development"
+          ? {
+              details:
+                error.message,
+            }
+          : {}),
       });
     }
+  }
+);
 
-    if (error.status === 401) {
-      return res.status(401).json({
-        error: "Invalid Mistral API key. Please check your configuration.",
-      });
-    }
 
-    if (error.status === 400) {
-      return res.status(400).json({
-        error: "Invalid request to Mistral API. Please try rephrasing your message.",
-      });
-    }
+/* ==========================================================================
+   404
+   ========================================================================== */
 
-    if (error.code === "ECONNREFUSED" || error.code === "ENOTFOUND") {
-      return res.status(503).json({
-        error: "Unable to reach Mistral API. Please check your internet connection.",
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Route not found.",
+  });
+});
+
+
+/* ==========================================================================
+   Error Handler
+   ========================================================================== */
+
+app.use(
+  (err, req, res, next) => {
+    console.error(
+      "❌ Unhandled server error:",
+      err
+    );
+
+    /*
+     * CORS errors.
+     */
+    if (
+      err.message &&
+      err.message.includes("CORS")
+    ) {
+      return res.status(403).json({
+        error:
+          "CORS policy blocked this request.",
       });
     }
 
     res.status(500).json({
-      error: "AI request failed. Please try again.",
-      ...(NODE_ENV === "development" ? { details: error.message } : {}),
+      error:
+        "Internal server error.",
+
+      ...(NODE_ENV === "development"
+        ? {
+            details:
+              err.message,
+          }
+        : {}),
     });
   }
-});
+);
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: "Route not found",
-  });
-});
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error("Unhandled error:", err);
-  res.status(500).json({
-    error: "Internal server error",
-    ...(NODE_ENV === "development" ? { details: err.message } : {}),
-  });
-});
+/* ==========================================================================
+   Start Server
+   ========================================================================== */
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📍 Environment: ${NODE_ENV}`);
-  console.log(`🔒 CORS: All origins allowed (mobile compatible)`);
-  console.log(`⚡ Rate limit: ${RATE_LIMIT_MAX} requests per ${RATE_LIMIT_WINDOW_MS / 1000 / 60} minutes`);
+  console.log("");
+  console.log(
+    "🚀 AI Security Assistant API started"
+  );
+  console.log(
+    `📍 Port: ${PORT}`
+  );
+  console.log(
+    `🌎 Environment: ${NODE_ENV}`
+  );
+  console.log(
+    `🤖 Model: ${MISTRAL_MODEL}`
+  );
+  console.log(
+    `⚡ Local rate limit: ${RATE_LIMIT_MAX} requests / ${RATE_LIMIT_WINDOW_MS / 60000} minutes`
+  );
+  console.log(
+    `🧠 Max history: ${MAX_HISTORY_MESSAGES} messages`
+  );
+  console.log(
+    `📦 Max context: ${MAX_CONTEXT_CHARACTERS} characters`
+  );
+  console.log("");
 });
