@@ -7,6 +7,30 @@ import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+// Dynamic thinking words based on question context
+const THINKING_WORDS = [
+  "Fathoming...",
+  "Calculating...",
+  "Reasoning...",
+  "Strategizing...",
+  "Analyzing...",
+  "Correlating...",
+  "Evaluating...",
+  "Synthesizing...",
+  "Processing...",
+  "Connecting...",
+  "Examining...",
+  "Formulating...",
+  "Compiling...",
+  "Reviewing...",
+  "Assessing...",
+  "Mapping...",
+  "Scanning...",
+  "Retrieving...",
+  "Investigating...",
+  "Building...",
+];
+
 // Standalone CodeBlock component (fixed React hook issue)
 function CodeBlock({ inline, className, children, ...props }) {
   const [copied, setCopied] = useState(false);
@@ -46,6 +70,11 @@ function CodeBlock({ inline, className, children, ...props }) {
             borderRadius: 0,
             fontSize: '13px',
             lineHeight: '1.5',
+            userSelect: 'text',
+            WebkitUserSelect: 'text',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
           }}
           {...props}
         >
@@ -73,7 +102,7 @@ function App() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [typing, setTyping] = useState(false);
+  const [thinkingWord, setThinkingWord] = useState(THINKING_WORDS[0]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("darkMode");
     return saved ? JSON.parse(saved) : window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -96,17 +125,32 @@ function App() {
     "What is a WAF and when should I use it?",
   ];
 
+  // Rotate thinking words while loading
+  useEffect(() => {
+    if (loading) {
+      const interval = setInterval(() => {
+        setThinkingWord(prev => {
+          const currentIndex = THINKING_WORDS.indexOf(prev);
+          const nextIndex = (currentIndex + 1) % THINKING_WORDS.length;
+          return THINKING_WORDS[nextIndex];
+        });
+      }, 1500);
+      
+      return () => clearInterval(interval);
+    }
+  }, [loading]);
+
   // Persist dark mode preference
   useEffect(() => {
     localStorage.setItem("darkMode", JSON.stringify(darkMode));
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea with LARGER max height
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 300) + 'px';
     }
   }, [input]);
 
@@ -115,7 +159,7 @@ function App() {
     if (!showScrollButton) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
-  }, [messages, loading, typing, showScrollButton]);
+  }, [messages, loading, showScrollButton]);
 
   // Handle scroll position
   const handleScroll = useCallback(() => {
@@ -127,49 +171,53 @@ function App() {
     }
   }, []);
 
-  // Typing effect for AI responses
-  const typeMessage = useCallback(async (fullMessage) => {
-    setTyping(true);
-    const words = fullMessage.split(' ');
-    let currentMessage = '';
-    
-    // For long messages, use chunk-based typing instead of word-by-word
-    if (words.length > 100) {
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'assistant',
-          content: fullMessage,
-          timestamp: new Date().toISOString(),
-        };
-        return updated;
-      });
-      setTyping(false);
-      return;
+  // Smooth scroll to bottom after answer is fully displayed
+  const smoothScrollToBottom = useCallback(() => {
+    if (messagesContainerRef.current) {
+      const container = messagesContainerRef.current;
+      const targetScroll = container.scrollHeight - container.clientHeight;
+      const startScroll = container.scrollTop;
+      const distance = targetScroll - startScroll;
+      const duration = 1500;
+      let startTime = null;
+      
+      const animateScroll = (currentTime) => {
+        if (startTime === null) startTime = currentTime;
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        const easeInOut = progress < 0.5 
+          ? 2 * progress * progress 
+          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        
+        container.scrollTop = startScroll + distance * easeInOut;
+        
+        if (progress < 1) {
+          requestAnimationFrame(animateScroll);
+        }
+      };
+      
+      requestAnimationFrame(animateScroll);
     }
-    
-    for (let i = 0; i < words.length; i++) {
-      currentMessage += (i === 0 ? '' : ' ') + words[i];
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          role: 'assistant',
-          content: currentMessage,
-          timestamp: new Date().toISOString(),
-        };
-        return updated;
-      });
-      const delay = words.length > 50 ? 15 : 25;
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    
-    setTyping(false);
   }, []);
 
   const sendMessage = async (content = input) => {
     const trimmedInput = content.trim();
 
     if (!trimmedInput || loading) {
+      return;
+    }
+
+    if (trimmedInput.length > 4000) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: "⚠️ Your message exceeds the 4000 character limit. Please shorten it and try again.",
+          timestamp: new Date().toISOString(),
+          error: true,
+        },
+      ]);
       return;
     }
 
@@ -180,19 +228,32 @@ function App() {
     };
 
     const updatedMessages = [...messages, userMessage];
+
     setMessages(updatedMessages);
     setInput("");
     setLoading(true);
     setIntents([]);
+    setThinkingWord(THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)]);
 
     try {
+      const apiMessages = updatedMessages
+        .filter(
+          (message) =>
+            (message.role === "user" || message.role === "assistant") &&
+            typeof message.content === "string"
+        )
+        .map(({ role, content }) => ({
+          role,
+          content: content.slice(0, 4000),
+        }));
+
       const response = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          messages: updatedMessages.map(({ role, content }) => ({ role, content })),
+          messages: apiMessages,
           conversationId,
         }),
       });
@@ -211,20 +272,30 @@ function App() {
         setIntents(data.intents);
       }
 
-      setMessages(prev => [...prev, {
-        role: "assistant",
-        content: "",
-        timestamp: new Date().toISOString(),
-        visual: data.visual || null,
-      }]);
+      // Display full answer immediately (no typing reveal)
+      setMessages(prev => [
+        ...prev,
+        {
+          role: "assistant",
+          content: data.reply,
+          timestamp: new Date().toISOString(),
+          visual: data.visual || null,
+        },
+      ]);
+
+      setTimeout(() => {
+        smoothScrollToBottom();
+      }, 300);
       
-      await typeMessage(data.reply);
     } catch (error) {
       setMessages(prev => [
         ...prev,
         {
           role: "assistant",
-          content: `⚠️ ${error.message || "Unable to connect to the AI server. Please check your connection or try again."}`,
+          content: `⚠️ ${
+            error.message ||
+            "Unable to connect to the AI server. Please check your connection or try again."
+          }`,
           timestamp: new Date().toISOString(),
           error: true,
         },
@@ -270,7 +341,7 @@ function App() {
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    smoothScrollToBottom();
     setShowScrollButton(false);
   };
 
@@ -365,11 +436,29 @@ function App() {
           role="log"
           aria-live="polite"
           aria-label="Chat messages"
+          style={{ 
+            userSelect: 'text', 
+            WebkitUserSelect: 'text', 
+            cursor: 'text',
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            maxWidth: '100%',
+          }}
         >
           {messages.map((message, index) => (
             <div
               key={index}
               className={`message ${message.role} ${message.error ? 'error' : ''}`}
+              style={{ 
+                userSelect: 'text', 
+                WebkitUserSelect: 'text',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word',
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+              }}
             >
               <div className="message-meta">
                 <span className="message-author">
@@ -380,10 +469,31 @@ function App() {
                 )}
               </div>
 
-              <div className="message-content">
+              <div 
+                className="message-content" 
+                style={{ 
+                  userSelect: 'text', 
+                  WebkitUserSelect: 'text', 
+                  cursor: 'text',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'break-word',
+                  maxWidth: '100%',
+                  boxSizing: 'border-box',
+                }}
+              >
                 {message.role === "assistant" && !message.error ? (
                   <>
-                    <div className="markdown-content">
+                    <div 
+                      className="markdown-content" 
+                      style={{ 
+                        userSelect: 'text', 
+                        WebkitUserSelect: 'text',
+                        wordBreak: 'break-word',
+                        overflowWrap: 'break-word',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box',
+                      }}
+                    >
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
@@ -397,6 +507,34 @@ function App() {
                           },
                           blockquote({ children }) {
                             return <blockquote className="blockquote">{children}</blockquote>;
+                          },
+                          pre({ children }) {
+                            return (
+                              <pre style={{ 
+                                userSelect: 'text', 
+                                WebkitUserSelect: 'text',
+                                whiteSpace: 'pre-wrap',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word',
+                                maxWidth: '100%',
+                                boxSizing: 'border-box',
+                                overflowX: 'auto',
+                              }}>
+                                {children}
+                              </pre>
+                            );
+                          },
+                          p({ children }) {
+                            return (
+                              <p style={{ 
+                                wordBreak: 'break-word',
+                                overflowWrap: 'break-word',
+                                maxWidth: '100%',
+                                boxSizing: 'border-box',
+                              }}>
+                                {children}
+                              </p>
+                            );
                           },
                         }}
                       >
@@ -426,7 +564,17 @@ function App() {
                     )}
                   </>
                 ) : (
-                  <div className="plain-message">{message.content}</div>
+                  <div 
+                    className="plain-message"
+                    style={{ 
+                      wordBreak: 'break-word',
+                      overflowWrap: 'break-word',
+                      maxWidth: '100%',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    {message.content}
+                  </div>
                 )}
               </div>
 
@@ -451,24 +599,21 @@ function App() {
             </div>
           ))}
 
-          {loading && !typing && (
+          {loading && (
             <div className="message assistant loading">
               <div className="message-meta">
                 <span className="message-author">AI</span>
               </div>
               <div className="message-content">
-                <div className="typing-indicator" aria-label="AI is thinking">
-                  <span></span>
-                  <span></span>
-                  <span></span>
+                <div className="thinking-indicator">
+                  <div className="thinking-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                  <span className="thinking-text">{thinkingWord}</span>
                 </div>
               </div>
-            </div>
-          )}
-
-          {typing && (
-            <div className="typing-status">
-              AI is typing...
             </div>
           )}
 
@@ -493,7 +638,7 @@ function App() {
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask a security question..."
-              rows="1"
+              rows="3"
               disabled={loading}
               aria-label="Message input"
               maxLength={4000}
