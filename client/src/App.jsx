@@ -3,11 +3,11 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { Shield, Sun, Moon, Send, Copy, Check, RotateCcw, ArrowDown, Trash2, Sparkles } from "lucide-react";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-// Dynamic thinking words based on question context
 const THINKING_WORDS = [
   "Fathoming...",
   "Calculating...",
@@ -31,10 +31,56 @@ const THINKING_WORDS = [
   "Building...",
 ];
 
-// Standalone CodeBlock component (fixed React hook issue)
+function useVisualViewport() {
+  const [viewport, setViewport] = useState(() => ({
+    height: typeof window !== 'undefined' && window.visualViewport 
+      ? window.visualViewport.height 
+      : window.innerHeight,
+    keyboardOpen: false,
+  }));
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) {
+      const handleResize = () => {
+        setViewport({ height: window.innerHeight, keyboardOpen: false });
+      };
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+
+    let rafId = null;
+    let lastHeight = vv.height;
+
+    const handleViewportChange = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const heightDiff = Math.abs(vv.height - lastHeight);
+        if (heightDiff < 2) return;
+        lastHeight = vv.height;
+        setViewport({
+          height: vv.height,
+          keyboardOpen: vv.height < window.innerHeight - 100,
+        });
+      });
+    };
+
+    vv.addEventListener('resize', handleViewportChange);
+    vv.addEventListener('scroll', handleViewportChange);
+    handleViewportChange();
+
+    return () => {
+      vv.removeEventListener('resize', handleViewportChange);
+      vv.removeEventListener('scroll', handleViewportChange);
+      if (rafId) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  return viewport;
+}
+
 function CodeBlock({ inline, className, children, ...props }) {
   const [copied, setCopied] = useState(false);
-
   const match = /language-(\w+)/.exec(className || "");
   const code = String(children).replace(/\n$/, "");
 
@@ -53,29 +99,16 @@ function CodeBlock({ inline, className, children, ...props }) {
       <div className="code-block">
         <div className="code-header">
           <span className="code-language">{match[1]}</span>
-          <button 
-            className="code-copy-button"
-            onClick={handleCopyCode}
-            aria-label="Copy code"
-          >
-            {copied ? '✓ Copied' : 'Copy'}
+          <button className="code-copy-button" onClick={handleCopyCode} aria-label="Copy code">
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            <span>{copied ? 'Copied' : 'Copy'}</span>
           </button>
         </div>
         <SyntaxHighlighter
           style={oneDark}
           language={match[1]}
           PreTag="div"
-          customStyle={{
-            margin: 0,
-            borderRadius: 0,
-            fontSize: '13px',
-            lineHeight: '1.5',
-            userSelect: 'text',
-            WebkitUserSelect: 'text',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            overflowWrap: 'break-word',
-          }}
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: '13px', lineHeight: '1.5' }}
           {...props}
         >
           {code}
@@ -84,11 +117,7 @@ function CodeBlock({ inline, className, children, ...props }) {
     );
   }
 
-  return (
-    <code className={`inline-code ${className || ''}`} {...props}>
-      {children}
-    </code>
-  );
+  return <code className={`inline-code ${className || ''}`} {...props}>{children}</code>;
 }
 
 function App() {
@@ -115,8 +144,11 @@ function App() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const messagesContainerRef = useRef(null);
+  const revealTimerRef = useRef(null);
+  const isRevealingRef = useRef(false);
+  const isNearBottomRef = useRef(true);
+  const { viewportHeight, keyboardOpen } = useVisualViewport();
 
-  // Suggested questions
   const suggestedQuestions = [
     "How do I secure my AWS S3 buckets?",
     "What are the best practices for Kubernetes security?",
@@ -125,101 +157,122 @@ function App() {
     "What is a WAF and when should I use it?",
   ];
 
-  // Rotate thinking words while loading
   useEffect(() => {
     if (loading) {
       const interval = setInterval(() => {
         setThinkingWord(prev => {
-          const currentIndex = THINKING_WORDS.indexOf(prev);
-          const nextIndex = (currentIndex + 1) % THINKING_WORDS.length;
-          return THINKING_WORDS[nextIndex];
+          const idx = THINKING_WORDS.indexOf(prev);
+          return THINKING_WORDS[(idx + 1) % THINKING_WORDS.length];
         });
       }, 1500);
-      
       return () => clearInterval(interval);
     }
   }, [loading]);
 
-  // Persist dark mode preference
   useEffect(() => {
     localStorage.setItem("darkMode", JSON.stringify(darkMode));
     document.documentElement.classList.toggle("dark", darkMode);
   }, [darkMode]);
 
-  // Auto-resize textarea with LARGER max height
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 300) + 'px';
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = 'auto';
+      const maxHeight = window.innerWidth <= 600 ? 160 : 220;
+      el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
+      el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
   }, [input]);
 
-  // Auto-scroll to newest message
   useEffect(() => {
-    if (!showScrollButton) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [messages, loading, showScrollButton]);
+    return () => {
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      isRevealingRef.current = false;
+    };
+  }, []);
 
-  // Handle scroll position
+  const scrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  const progressiveReveal = useCallback((fullMessage, messageIndex) => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    isRevealingRef.current = true;
+
+    const words = fullMessage.split(' ');
+    if (words.length <= 15) {
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[messageIndex] = { ...updated[messageIndex], content: fullMessage };
+        return updated;
+      });
+      isRevealingRef.current = false;
+      return;
+    }
+
+    const chunkSize = words.length > 300 ? 15 : words.length > 150 ? 10 : words.length > 50 ? 7 : 5;
+    const delay = words.length > 300 ? 30 : words.length > 150 ? 40 : words.length > 50 ? 50 : 60;
+    let currentIndex = 0;
+
+    const revealChunk = () => {
+      if (!isRevealingRef.current) return;
+
+      currentIndex += chunkSize;
+      const endIndex = Math.min(currentIndex, words.length);
+      const revealedText = words.slice(0, endIndex).join(' ');
+
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[messageIndex] = { ...updated[messageIndex], content: revealedText };
+        return updated;
+      });
+
+      if (isNearBottomRef.current) {
+        const container = messagesContainerRef.current;
+        if (container) container.scrollTop = container.scrollHeight;
+      }
+
+      if (endIndex < words.length) {
+        revealTimerRef.current = setTimeout(revealChunk, delay);
+      } else {
+        isRevealingRef.current = false;
+        revealTimerRef.current = null;
+      }
+    };
+
+    revealTimerRef.current = setTimeout(revealChunk, delay);
+  }, []);
+
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
     if (container) {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      const isNearBottom = scrollHeight - scrollTop - clientHeight < 120;
-      setShowScrollButton(!isNearBottom);
-    }
-  }, []);
-
-  // Smooth scroll to bottom after answer is fully displayed
-  const smoothScrollToBottom = useCallback(() => {
-    if (messagesContainerRef.current) {
-      const container = messagesContainerRef.current;
-      const targetScroll = container.scrollHeight - container.clientHeight;
-      const startScroll = container.scrollTop;
-      const distance = targetScroll - startScroll;
-      const duration = 1500;
-      let startTime = null;
-      
-      const animateScroll = (currentTime) => {
-        if (startTime === null) startTime = currentTime;
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        const easeInOut = progress < 0.5 
-          ? 2 * progress * progress 
-          : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-        
-        container.scrollTop = startScroll + distance * easeInOut;
-        
-        if (progress < 1) {
-          requestAnimationFrame(animateScroll);
-        }
-      };
-      
-      requestAnimationFrame(animateScroll);
+      const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
+      isNearBottomRef.current = nearBottom;
+      setShowScrollButton(!nearBottom);
     }
   }, []);
 
   const sendMessage = async (content = input) => {
     const trimmedInput = content.trim();
 
-    if (!trimmedInput || loading) {
+    if (!trimmedInput || loading) return;
+
+    if (trimmedInput.length > 4000) {
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "⚠️ Your message exceeds the 4000 character limit. Please shorten it and try again.",
+        timestamp: new Date().toISOString(),
+        error: true,
+      }]);
       return;
     }
 
-    if (trimmedInput.length > 4000) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "⚠️ Your message exceeds the 4000 character limit. Please shorten it and try again.",
-          timestamp: new Date().toISOString(),
-          error: true,
-        },
-      ]);
-      return;
-    }
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    isRevealingRef.current = false;
 
     const userMessage = {
       role: "user",
@@ -228,78 +281,48 @@ function App() {
     };
 
     const updatedMessages = [...messages, userMessage];
-
     setMessages(updatedMessages);
     setInput("");
     setLoading(true);
     setIntents([]);
-    setThinkingWord(THINKING_WORDS[Math.floor(Math.random() * THINKING_WORDS.length)]);
+    setThinkingWord(THINKING_WORDS[Math.floor(Math.random() * 10)]);
+    isNearBottomRef.current = true;
+
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     try {
       const apiMessages = updatedMessages
-        .filter(
-          (message) =>
-            (message.role === "user" || message.role === "assistant") &&
-            typeof message.content === "string"
-        )
-        .map(({ role, content }) => ({
-          role,
-          content: content.slice(0, 4000),
-        }));
+        .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
+        .map(({ role, content: c }) => ({ role, content: c.slice(0, 4000) }));
 
       const response = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          messages: apiMessages,
-          conversationId,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: apiMessages, conversationId }),
       });
 
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "AI request failed");
 
-      if (!response.ok) {
-        throw new Error(data.error || "AI request failed");
-      }
+      if (data.conversationId) setConversationId(data.conversationId);
+      if (data.intents) setIntents(data.intents);
 
-      if (data.conversationId) {
-        setConversationId(data.conversationId);
-      }
+      const newIndex = updatedMessages.length;
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        visual: data.visual || null,
+      }]);
 
-      if (data.intents) {
-        setIntents(data.intents);
-      }
-
-      // Display full answer immediately (no typing reveal)
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: data.reply,
-          timestamp: new Date().toISOString(),
-          visual: data.visual || null,
-        },
-      ]);
-
-      setTimeout(() => {
-        smoothScrollToBottom();
-      }, 300);
-      
+      progressiveReveal(data.reply, newIndex);
     } catch (error) {
-      setMessages(prev => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `⚠️ ${
-            error.message ||
-            "Unable to connect to the AI server. Please check your connection or try again."
-          }`,
-          timestamp: new Date().toISOString(),
-          error: true,
-        },
-      ]);
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: `⚠️ ${error.message || "Unable to connect to the AI server. Please check your connection or try again."}`,
+        timestamp: new Date().toISOString(),
+        error: true,
+      }]);
     } finally {
       setLoading(false);
     }
@@ -313,6 +336,9 @@ function App() {
   };
 
   const clearChat = async () => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    isRevealingRef.current = false;
+
     if (conversationId) {
       try {
         await fetch(`${API_URL}/api/clear-conversation`, {
@@ -324,25 +350,18 @@ function App() {
         console.error("Failed to clear conversation:", error);
       }
     }
-    
+
     setConversationId(null);
     setIntents([]);
-    setMessages([
-      {
-        role: "assistant",
-        content: "👋 Chat cleared! Ready for a new security question. What would you like to explore?",
-        timestamp: new Date().toISOString(),
-      },
-    ]);
+    setMessages([{
+      role: "assistant",
+      content: "👋 Chat cleared! Ready for a new security question. What would you like to explore?",
+      timestamp: new Date().toISOString(),
+    }]);
   };
 
   const handleSuggestionClick = (suggestion) => {
     sendMessage(suggestion);
-  };
-
-  const scrollToBottom = () => {
-    smoothScrollToBottom();
-    setShowScrollButton(false);
   };
 
   const handleCopyMessage = async (content, index) => {
@@ -356,46 +375,50 @@ function App() {
   };
 
   const handleRetry = () => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    isRevealingRef.current = false;
+
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user");
     if (lastUserMessage) {
+      setMessages(prev => prev.filter(m => !m.error));
       sendMessage(lastUserMessage.content);
     }
   };
 
   const formatTimestamp = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString([], { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return new Date(timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
 
   return (
-    <div className={`app ${darkMode ? 'dark' : ''}`}>
+    <div className={`app ${darkMode ? 'dark' : ''}`} style={{ height: `${viewportHeight}px` }}>
       <header className="header">
         <div className="header-content">
           <div className="header-left">
-            <span className="logo" aria-hidden="true">🛡️</span>
-            <div>
-              <h1 className="header-title">AI Security Assistant</h1>
+            <Shield size={22} className="header-icon" />
+            <div className="header-text">
+              <h1 className="header-title">AI Security</h1>
               <p className="header-subtitle">Cloud Security • AWS • Azure • Kubernetes</p>
             </div>
           </div>
           <div className="header-actions">
             <button 
-              className="theme-toggle" 
+              className="icon-button" 
               onClick={() => setDarkMode(!darkMode)}
               aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
               title={darkMode ? "Light mode" : "Dark mode"}
             >
-              {darkMode ? '☀️' : '🌙'}
+              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
             <button 
-              className="clear-button" 
+              className="icon-button" 
               onClick={clearChat}
               aria-label="Clear chat"
               title="Clear chat"
             >
-              Clear Chat
+              <Trash2 size={18} />
             </button>
           </div>
         </div>
@@ -414,7 +437,10 @@ function App() {
       <main className="chat-container">
         {messages.length === 1 && (
           <div className="suggestions-container">
-            <p className="suggestions-title">Try asking about:</p>
+            <p className="suggestions-title">
+              <Sparkles size={14} />
+              Try asking about:
+            </p>
             <div className="suggestions-list">
               {suggestedQuestions.map((question, index) => (
                 <button
@@ -436,29 +462,11 @@ function App() {
           role="log"
           aria-live="polite"
           aria-label="Chat messages"
-          style={{ 
-            userSelect: 'text', 
-            WebkitUserSelect: 'text', 
-            cursor: 'text',
-            overflowX: 'hidden',
-            overflowY: 'auto',
-            wordBreak: 'break-word',
-            overflowWrap: 'break-word',
-            maxWidth: '100%',
-          }}
         >
           {messages.map((message, index) => (
             <div
               key={index}
               className={`message ${message.role} ${message.error ? 'error' : ''}`}
-              style={{ 
-                userSelect: 'text', 
-                WebkitUserSelect: 'text',
-                wordBreak: 'break-word',
-                overflowWrap: 'break-word',
-                maxWidth: '100%',
-                boxSizing: 'border-box',
-              }}
             >
               <div className="message-meta">
                 <span className="message-author">
@@ -469,31 +477,10 @@ function App() {
                 )}
               </div>
 
-              <div 
-                className="message-content" 
-                style={{ 
-                  userSelect: 'text', 
-                  WebkitUserSelect: 'text', 
-                  cursor: 'text',
-                  wordBreak: 'break-word',
-                  overflowWrap: 'break-word',
-                  maxWidth: '100%',
-                  boxSizing: 'border-box',
-                }}
-              >
+              <div className="message-content">
                 {message.role === "assistant" && !message.error ? (
                   <>
-                    <div 
-                      className="markdown-content" 
-                      style={{ 
-                        userSelect: 'text', 
-                        WebkitUserSelect: 'text',
-                        wordBreak: 'break-word',
-                        overflowWrap: 'break-word',
-                        maxWidth: '100%',
-                        boxSizing: 'border-box',
-                      }}
-                    >
+                    <div className="markdown-content">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
@@ -507,34 +494,6 @@ function App() {
                           },
                           blockquote({ children }) {
                             return <blockquote className="blockquote">{children}</blockquote>;
-                          },
-                          pre({ children }) {
-                            return (
-                              <pre style={{ 
-                                userSelect: 'text', 
-                                WebkitUserSelect: 'text',
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word',
-                                overflowWrap: 'break-word',
-                                maxWidth: '100%',
-                                boxSizing: 'border-box',
-                                overflowX: 'auto',
-                              }}>
-                                {children}
-                              </pre>
-                            );
-                          },
-                          p({ children }) {
-                            return (
-                              <p style={{ 
-                                wordBreak: 'break-word',
-                                overflowWrap: 'break-word',
-                                maxWidth: '100%',
-                                boxSizing: 'border-box',
-                              }}>
-                                {children}
-                              </p>
-                            );
                           },
                         }}
                       >
@@ -564,35 +523,27 @@ function App() {
                     )}
                   </>
                 ) : (
-                  <div 
-                    className="plain-message"
-                    style={{ 
-                      wordBreak: 'break-word',
-                      overflowWrap: 'break-word',
-                      maxWidth: '100%',
-                      boxSizing: 'border-box',
-                    }}
-                  >
-                    {message.content}
-                  </div>
+                  <div className="plain-message">{message.content}</div>
                 )}
               </div>
 
-              {message.role === "assistant" && !message.error && (
+              {message.role === "assistant" && !message.error && message.content && (
                 <div className="message-actions">
                   <button
                     className="message-action-btn"
                     onClick={() => handleCopyMessage(message.content, index)}
                     aria-label="Copy response"
                   >
-                    {copiedMessageId === index ? '✓ Copied' : '📋 Copy'}
+                    {copiedMessageId === index ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{copiedMessageId === index ? 'Copied' : 'Copy'}</span>
                   </button>
                   <button
                     className="message-action-btn"
                     onClick={handleRetry}
-                    aria-label="Retry"
+                    aria-label="Retry response"
                   >
-                    🔄 Retry
+                    <RotateCcw size={14} />
+                    <span>Retry</span>
                   </button>
                 </div>
               )}
@@ -626,7 +577,7 @@ function App() {
             onClick={scrollToBottom}
             aria-label="Scroll to bottom"
           >
-            ↓
+            <ArrowDown size={18} />
           </button>
         )}
 
@@ -638,7 +589,7 @@ function App() {
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask a security question..."
-              rows="3"
+              rows="1"
               disabled={loading}
               aria-label="Message input"
               maxLength={4000}
@@ -649,11 +600,12 @@ function App() {
               disabled={loading || !input.trim()}
               aria-label="Send message"
             >
-              {loading ? "..." : "Send →"}
+              <Send size={18} />
+              <span>Send</span>
             </button>
           </div>
           <p className="composer-hint">
-            Press Enter to send • Shift + Enter for new line • Markdown supported
+            Enter to send • Shift + Enter for new line • Markdown supported
           </p>
         </div>
       </main>
