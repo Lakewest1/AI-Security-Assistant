@@ -36,6 +36,15 @@ const PROVIDER_TIMEOUT_MS = Number(process.env.PROVIDER_TIMEOUT_MS) || 20000;
 const TOTAL_AI_REQUEST_TIMEOUT_MS = Number(process.env.TOTAL_AI_REQUEST_TIMEOUT_MS) || 45000;
 const PROVIDER_COOLDOWN_MS = Number(process.env.PROVIDER_COOLDOWN_MS) || 30000;
 const PROVIDER_FAILURE_THRESHOLD = Number(process.env.PROVIDER_FAILURE_THRESHOLD) || 3;
+
+/* Cooldowns by category */
+const COOLDOWN_BILLING_MS = Number(process.env.COOLDOWN_BILLING_MS) || 30 * 60 * 1000; // 30 min
+const COOLDOWN_AUTH_MS = Number(process.env.COOLDOWN_AUTH_MS) || 30 * 60 * 1000; // 30 min
+const COOLDOWN_MODEL_MS = Number(process.env.COOLDOWN_MODEL_MS) || 15 * 60 * 1000; // 15 min
+const COOLDOWN_RATE_LIMIT_MS = Number(process.env.COOLDOWN_RATE_LIMIT_MS) || 60 * 1000; // 1 min
+const COOLDOWN_SERVER_MS = Number(process.env.COOLDOWN_SERVER_MS) || 60 * 1000; // 1 min
+const COOLDOWN_NETWORK_MS = Number(process.env.COOLDOWN_NETWORK_MS) || 30 * 1000; // 30 sec
+
 const TRUST_PROXY = Number(process.env.TRUST_PROXY) || 1;
 
 /* =========================================================
@@ -135,55 +144,420 @@ console.log(`✅ Primary: ${primaryProviders.map(p => p.name).join(", ") || "Non
 console.log(`✅ Fallback: ${fallbackProviders.map(p => p.name).join(", ") || "None"}`);
 
 /* =========================================================
-   CIRCUIT BREAKER
+   CIRCUIT BREAKER (Per Provider + Model)
 ========================================================= */
 
 const CircuitState = { CLOSED: "CLOSED", OPEN: "OPEN", HALF_OPEN: "HALF_OPEN" };
 
 const circuitBreakers = new Map();
 
-function getCircuit(name) {
-  if (!circuitBreakers.has(name)) {
-    circuitBreakers.set(name, {
+function getCircuitKey(providerName, model) {
+  return `${providerName}:${model || "default"}`;
+}
+
+function getCircuit(key) {
+  if (!circuitBreakers.has(key)) {
+    circuitBreakers.set(key, {
       state: CircuitState.CLOSED,
       failures: 0,
       lastFailure: 0,
       cooldownUntil: 0,
+      halfOpenTesting: false,
+      category: null,
     });
   }
-  return circuitBreakers.get(name);
+  return circuitBreakers.get(key);
 }
 
-function isProviderAvailable(provider) {
-  const circuit = getCircuit(provider.name);
+function getCooldownForCategory(category) {
+  switch (category) {
+    case "billing": return COOLDOWN_BILLING_MS;
+    case "auth": return COOLDOWN_AUTH_MS;
+    case "model_unavailable": return COOLDOWN_MODEL_MS;
+    case "rate_limit": return COOLDOWN_RATE_LIMIT_MS;
+    case "server_error": return COOLDOWN_SERVER_MS;
+    case "network": return COOLDOWN_NETWORK_MS;
+    default: return PROVIDER_COOLDOWN_MS;
+  }
+}
+
+function isProviderAvailable(provider, model) {
+  const key = getCircuitKey(provider.name, model);
+  const circuit = getCircuit(key);
   const now = Date.now();
 
   if (circuit.state === CircuitState.OPEN) {
     if (now >= circuit.cooldownUntil) {
-      circuit.state = CircuitState.HALF_OPEN;
-      return true;
+      // Move to HALF_OPEN for controlled test
+      if (!circuit.halfOpenTesting) {
+        circuit.state = CircuitState.HALF_OPEN;
+        circuit.halfOpenTesting = true;
+        return true;
+      }
+      // Another test already in progress — reject to prevent hammering
+      return false;
     }
     return false;
+  }
+
+  if (circuit.state === CircuitState.HALF_OPEN) {
+    if (circuit.halfOpenTesting) return false;
+    circuit.halfOpenTesting = true;
+    return true;
   }
 
   return true;
 }
 
-function markFailure(provider) {
-  const circuit = getCircuit(provider.name);
-  circuit.failures += 1;
-  circuit.lastFailure = Date.now();
+function markProviderFailure(provider, model, category) {
+  const key = getCircuitKey(provider.name, model);
+  const circuit = getCircuit(key);
+  const now = Date.now();
 
+  circuit.failures += 1;
+  circuit.lastFailure = now;
+  circuit.category = category || "unknown";
+  circuit.halfOpenTesting = false;
+
+  // Billing, auth, model errors: open immediately with long cooldown
+  if (
+    category === "billing" ||
+    category === "auth" ||
+    category === "model_unavailable"
+  ) {
+    circuit.state = CircuitState.OPEN;
+    circuit.cooldownUntil = now + getCooldownForCategory(category);
+    return;
+  }
+
+  // Rate limit: open immediately with short cooldown
+  if (category === "rate_limit") {
+    circuit.state = CircuitState.OPEN;
+    circuit.cooldownUntil = now + getCooldownForCategory(category);
+    return;
+  }
+
+  // Transient errors: open after threshold
   if (circuit.failures >= PROVIDER_FAILURE_THRESHOLD) {
     circuit.state = CircuitState.OPEN;
-    circuit.cooldownUntil = Date.now() + PROVIDER_COOLDOWN_MS;
+    circuit.cooldownUntil = now + getCooldownForCategory(category);
   }
 }
 
-function markSuccess(provider) {
-  const circuit = getCircuit(provider.name);
-  circuit.state = CircuitState.CLOSED;
-  circuit.failures = 0;
+function markProviderSuccess(provider, model) {
+  const key = getCircuitKey(provider.name, model);
+  circuitBreakers.set(key, {
+    state: CircuitState.CLOSED,
+    failures: 0,
+    lastFailure: 0,
+    cooldownUntil: 0,
+    halfOpenTesting: false,
+    category: null,
+  });
+}
+
+function getProviderHealthStatus() {
+  const status = {};
+  for (const provider of activeProviders) {
+    const sampleModel = provider.models.balanced;
+    const key = getCircuitKey(provider.name, sampleModel);
+    const circuit = getCircuit(key);
+    status[provider.name] = circuit.state.toLowerCase();
+  }
+  return status;
+}
+
+/* =========================================================
+   ERROR CLASSIFICATION
+========================================================= */
+
+/**
+ * Classifies a provider error and decides if fallback should occur.
+ * NEVER returns fallback:false for provider-side availability issues.
+ */
+function classifyProviderError(error) {
+  if (!error) {
+    return {
+      fallback: true,
+      category: "unknown",
+      retryProvider: false,
+      message: "Unknown provider error",
+    };
+  }
+
+  const status = error.status || error.statusCode || 0;
+  const rawMessage = (error.message || "").toLowerCase();
+  const originalMessage = error.originalError?.message || "";
+  const combined = `${rawMessage} ${originalMessage}`.toLowerCase();
+
+  /* ---------------- BILLING / CREDITS ---------------- */
+  const billingPatterns = [
+    "insufficient balance",
+    "insufficient_balance",
+    "insufficient quota",
+    "insufficient_quota",
+    "insufficient funds",
+    "insufficient credit",
+    "no credits",
+    "credit balance is too low",
+    "credit balance too low",
+    "billing",
+    "payment required",
+    "quota exceeded",
+    "quota exhausted",
+    "exceeded your current quota",
+    "account is not active",
+    "account suspended",
+    "please add credits",
+    "please add funds",
+  ];
+  if (billingPatterns.some(p => combined.includes(p))) {
+    return {
+      fallback: true,
+      category: "billing",
+      retryProvider: false,
+      message: "Provider has no available balance or credits",
+    };
+  }
+
+  /* ---------------- MODEL UNAVAILABLE ---------------- */
+  const modelPatterns = [
+    "model not found",
+    "model_not_found",
+    "does not exist",
+    "not supported",
+    "unsupported model",
+    "is not found for api version",
+    "model is unavailable",
+    "model has been retired",
+    "model retired",
+    "no longer available",
+    "invalid model",
+    "unknown model",
+  ];
+  if (modelPatterns.some(p => combined.includes(p))) {
+    return {
+      fallback: true,
+      category: "model_unavailable",
+      retryProvider: false,
+      message: "Provider model is not available",
+    };
+  }
+
+  /* ---------------- RATE LIMIT ---------------- */
+  if (status === 429 || combined.includes("rate limit") || combined.includes("too many requests")) {
+    return {
+      fallback: true,
+      category: "rate_limit",
+      retryProvider: false,
+      message: "Provider rate limited",
+    };
+  }
+
+  /* ---------------- AUTH ---------------- */
+  if (status === 401 || status === 403) {
+    return {
+      fallback: true,
+      category: "auth",
+      retryProvider: false,
+      message: "Provider authentication failed",
+    };
+  }
+
+  /* ---------------- NETWORK ---------------- */
+  const networkCodes = ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "ENOTFOUND", "EAI_AGAIN", "ECONNABORTED"];
+  if (networkCodes.some(c => error.code === c)) {
+    return {
+      fallback: true,
+      category: "network",
+      retryProvider: false,
+      message: "Provider network error",
+    };
+  }
+  if (error.name === "AbortError" || status === 408) {
+    return {
+      fallback: true,
+      category: "network",
+      retryProvider: false,
+      message: "Provider timeout",
+    };
+  }
+  if (combined.includes("fetch failed") || combined.includes("network error")) {
+    return {
+      fallback: true,
+      category: "network",
+      retryProvider: false,
+      message: "Provider network failure",
+    };
+  }
+
+  /* ---------------- SERVER ERROR ---------------- */
+  if (status >= 500 && status <= 599) {
+    return {
+      fallback: true,
+      category: "server_error",
+      retryProvider: false,
+      message: "Provider server error",
+    };
+  }
+
+  /* ---------------- EMPTY / MALFORMED ---------------- */
+  if (
+    combined.includes("empty response") ||
+    combined.includes("malformed") ||
+    combined.includes("invalid response")
+  ) {
+    return {
+      fallback: true,
+      category: "unknown",
+      retryProvider: false,
+      message: "Provider returned empty or malformed response",
+    };
+  }
+
+  /* ---------------- INVALID REQUEST (400) ---------------- */
+  if (status === 400) {
+    // Some 400s are provider-side (bad model), some are user-side
+    // Default to fallback=true to be resilient, but flag as invalid_request
+    return {
+      fallback: true,
+      category: "invalid_request",
+      retryProvider: false,
+      message: "Provider rejected the request",
+    };
+  }
+
+  /* ---------------- UNKNOWN ---------------- */
+  return {
+    fallback: true,
+    category: "unknown",
+    retryProvider: false,
+    message: "Provider failed with unknown error",
+  };
+}
+
+/* =========================================================
+   PROVIDER FAILURE RECORDING
+========================================================= */
+
+function recordProviderFailure(providerName, model, category) {
+  const key = `${providerName}:${model}`;
+  if (!circuitBreakers.has(key)) {
+    circuitBreakers.set(key, {
+      state: CircuitState.CLOSED,
+      failures: 0,
+      lastFailure: 0,
+      cooldownUntil: 0,
+      halfOpenTesting: false,
+      category: null,
+    });
+  }
+  const circuit = circuitBreakers.get(key);
+  circuit.failures += 1;
+  circuit.lastFailure = Date.now();
+  circuit.category = category;
+}
+
+/* =========================================================
+   PROVIDER SELECTION
+========================================================= */
+
+function getProvidersForRoute(route) {
+  const ordered = [...primaryProviders, ...fallbackProviders]
+    .sort((a, b) => a.routePriority[route] - b.routePriority[route]);
+  return ordered;
+}
+
+/* =========================================================
+   AI CALL WITH FALLBACK (ROBUST)
+========================================================= */
+
+async function callAIWithFallback(messages, route, maxTokens, requestId) {
+  const allProviders = getProvidersForRoute(route);
+  if (allProviders.length === 0) {
+    throw new Error("No providers configured");
+  }
+
+  const attemptedProviders = [];
+  const totalStartTime = Date.now();
+  let lastError = null;
+  let lastCategory = "unknown";
+
+  for (const provider of allProviders) {
+    // Check total time budget
+    const elapsed = Date.now() - totalStartTime;
+    const remaining = TOTAL_AI_REQUEST_TIMEOUT_MS - elapsed;
+    if (remaining <= 1000) {
+      console.log(`[${requestId}] ⏱️ Total timeout reached`);
+      break;
+    }
+
+    const model = provider.models[route] || provider.models.balanced;
+
+    // Check circuit availability for this provider+model
+    if (!isProviderAvailable(provider, model)) {
+      console.log(`[${requestId}] ⏭️ ${provider.name} circuit OPEN for ${model}, skipping`);
+      continue;
+    }
+
+    attemptedProviders.push(provider.name);
+
+    try {
+      const providerTimeout = Math.min(PROVIDER_TIMEOUT_MS, remaining);
+
+      console.log(`[${requestId}] 🤖 ${provider.name} | ${model} | ${route}`);
+
+      const result = await provider.call(messages, model, maxTokens, {
+        timeoutMs: providerTimeout,
+      });
+
+      if (!result || !result.reply) {
+        throw new Error("Provider returned empty response");
+      }
+
+      markProviderSuccess(provider, model);
+      console.log(`[${requestId}] ✅ ${provider.name} succeeded`);
+      return {
+        ...result,
+        attemptedProviders,
+        fallbackUsed: attemptedProviders.length > 1,
+      };
+    } catch (error) {
+      // Handle client abort — do not mark unhealthy
+      if (error?.name === "AbortError" && error?.isClientAbort) {
+        throw error;
+      }
+
+      const classification = classifyProviderError(error);
+      lastError = error;
+      lastCategory = classification.category;
+
+      console.error(
+        `[${requestId}] ⚠️ ${provider.name} failed | category=${classification.category} | fallback=${classification.fallback}`
+      );
+
+      // Mark circuit failure
+      markProviderFailure(provider, model, classification.category);
+
+      // Always continue to next provider for provider-side errors
+      if (classification.fallback) {
+        console.log(`[${requestId}] ↪️ Trying next provider`);
+        continue;
+      }
+
+      // Non-fallback only for genuinely unexpected cases
+      console.log(`[${requestId}] ❌ Non-fallback error, aborting chain`);
+      throw error;
+    }
+  }
+
+  // All providers failed or unavailable
+  const err = new Error("All AI providers unavailable or failed");
+  err.category = lastCategory;
+  err.attemptedProviders = attemptedProviders;
+  err.isProviderExhaustion = true;
+  err.originalError = lastError;
+  throw err;
 }
 
 /* =========================================================
@@ -200,7 +574,9 @@ app.use((req, res, next) => {
   req.requestId = requestId;
 
   res.on("finish", () => {
-    console.log(`${new Date().toISOString()} [${requestId}] ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`);
+    console.log(
+      `${new Date().toISOString()} [${requestId}] ${req.method} ${req.path} ${res.statusCode} ${Date.now() - start}ms`
+    );
   });
 
   next();
@@ -310,10 +686,16 @@ function routeIntent(intents, text) {
   if (text.length > 3000 && (intents.includes("security") || intents.includes("detection"))) return "powerful";
   if (intents.includes("forensics")) return "powerful";
 
-  if (intents.includes("code_request") || intents.includes("devsecops") ||
-      intents.includes("optimization") || intents.includes("troubleshooting") ||
-      intents.includes("architecture") || intents.includes("detection") ||
-      intents.includes("kubernetes") || intents.includes("compliance")) {
+  if (
+    intents.includes("code_request") ||
+    intents.includes("devsecops") ||
+    intents.includes("optimization") ||
+    intents.includes("troubleshooting") ||
+    intents.includes("architecture") ||
+    intents.includes("detection") ||
+    intents.includes("kubernetes") ||
+    intents.includes("compliance")
+  ) {
     return "balanced";
   }
 
@@ -326,77 +708,32 @@ function routeIntent(intents, text) {
 }
 
 /* =========================================================
-   PROVIDER SELECTION
-========================================================= */
-
-function getProvidersForRoute(route) {
-  const ordered = [...primaryProviders, ...fallbackProviders]
-    .filter(p => isProviderAvailable(p))
-    .sort((a, b) => a.routePriority[route] - b.routePriority[route]);
-  return ordered;
-}
-
-/* =========================================================
-   AI CALL WITH FALLBACK
-========================================================= */
-
-async function callAIWithFallback(messages, route, maxTokens, requestId) {
-  const providers = getProvidersForRoute(route);
-  if (providers.length === 0) throw new Error("No providers available");
-
-  const attemptedProviders = [];
-  let lastError = null;
-  const totalStartTime = Date.now();
-
-  for (const provider of providers) {
-    if (Date.now() - totalStartTime > TOTAL_AI_REQUEST_TIMEOUT_MS) {
-      console.log(`[${requestId}] Total timeout reached`);
-      break;
-    }
-
-    const model = provider.models[route] || provider.models.balanced;
-    attemptedProviders.push(provider.name);
-
-    try {
-      console.log(`[${requestId}] 🤖 ${provider.name} | ${model} | ${route}`);
-      const result = await provider.call(messages, model, maxTokens, {
-        timeoutMs: Math.min(PROVIDER_TIMEOUT_MS, TOTAL_AI_REQUEST_TIMEOUT_MS - (Date.now() - totalStartTime)),
-      });
-      markSuccess(provider);
-      console.log(`[${requestId}] ✅ ${provider.name} succeeded`);
-      return { ...result, attemptedProviders, fallbackUsed: attemptedProviders.length > 1 };
-    } catch (error) {
-      lastError = error;
-      markFailure(provider);
-      console.error(`[${requestId}] ⚠️ ${provider.name} failed: ${error.message}`);
-
-      if (!provider.isTransientError(error)) {
-        console.log(`[${requestId}] Non-transient error, stopping fallback`);
-        throw error;
-      }
-
-      console.log(`[${requestId}] ↪️ Falling back...`);
-    }
-  }
-
-  throw lastError || new Error("All providers failed");
-}
-
-/* =========================================================
    VALIDATION
 ========================================================= */
 
 function validateMessages(req, res, next) {
   const { messages } = req.body;
-  if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: "Messages required" });
-  if (messages.length > 50) return res.status(400).json({ error: "Too many messages" });
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return res.status(400).json({ error: "Messages required" });
+  }
+  if (messages.length > 50) {
+    return res.status(400).json({ error: "Too many messages" });
+  }
 
   const validRoles = ["user", "assistant", "system"];
   for (const msg of messages) {
-    if (!msg || typeof msg !== "object") return res.status(400).json({ error: "Invalid message" });
-    if (!msg.role || !validRoles.includes(msg.role)) return res.status(400).json({ error: "Invalid role" });
-    if (typeof msg.content !== "string" || !msg.content.trim()) return res.status(400).json({ error: "Empty content" });
-    if (msg.content.length > 4000) return res.status(400).json({ error: "Message too long" });
+    if (!msg || typeof msg !== "object") {
+      return res.status(400).json({ error: "Invalid message" });
+    }
+    if (!msg.role || !validRoles.includes(msg.role)) {
+      return res.status(400).json({ error: "Invalid role" });
+    }
+    if (typeof msg.content !== "string" || !msg.content.trim()) {
+      return res.status(400).json({ error: "Empty content" });
+    }
+    if (msg.content.length > 4000) {
+      return res.status(400).json({ error: "Message too long" });
+    }
   }
   next();
 }
@@ -429,6 +766,7 @@ app.get("/api/health", (req, res) => {
     environment: NODE_ENV,
     uptime: Math.floor(process.uptime()),
     timestamp: new Date().toISOString(),
+    providers: getProviderHealthStatus(),
   });
 });
 
@@ -442,16 +780,25 @@ app.post("/api/chat", chatLimiter, validateMessages, async (req, res) => {
   try {
     const { messages } = req.body;
     const lastUserMessage = [...messages].reverse().find(m => m.role === "user");
-    if (!lastUserMessage) return res.status(400).json({ error: "User message required" });
+    if (!lastUserMessage) {
+      return res.status(400).json({ error: "User message required" });
+    }
 
     const intents = detectIntent(lastUserMessage.content);
     const route = routeIntent(intents, lastUserMessage.content);
-    const maxTokens = route === "fast" ? FAST_MAX_TOKENS : route === "balanced" ? BALANCED_MAX_TOKENS : POWERFUL_MAX_TOKENS;
+    const maxTokens =
+      route === "fast" ? FAST_MAX_TOKENS :
+      route === "balanced" ? BALANCED_MAX_TOKENS :
+      POWERFUL_MAX_TOKENS;
 
-    console.log(`🧠 [${req.requestId}] Intent: ${intents.join(",") || "general"} | Route: ${route} | MaxTokens: ${maxTokens}`);
+    console.log(
+      `🧠 [${req.requestId}] Intent: ${intents.join(",") || "general"} | Route: ${route} | MaxTokens: ${maxTokens}`
+    );
 
     let enhancedPrompt = SYSTEM_PROMPT;
-    if (intents.length > 0) enhancedPrompt += `\n\nDetected intent: ${intents.join(", ")}`;
+    if (intents.length > 0) {
+      enhancedPrompt += `\n\nDetected intent: ${intents.join(", ")}`;
+    }
 
     const preparedMessages = prepareConversation(messages, enhancedPrompt);
     const result = await callAIWithFallback(preparedMessages, route, maxTokens, req.requestId);
@@ -475,16 +822,30 @@ app.post("/api/chat", chatLimiter, validateMessages, async (req, res) => {
     });
   } catch (error) {
     const responseTimeMs = Date.now() - startTime;
-    console.error(`❌ [${req.requestId}] Failed:`, error.message);
 
-    if (error?.status === 401 || error?.status === 403) {
-      return res.status(502).json({ error: "Provider authentication failed." });
+    /* Client abort: don't log as error, don't return 500 */
+    if (error?.name === "AbortError" && error?.isClientAbort) {
+      console.log(`[${req.requestId}] Client aborted request`);
+      return;
     }
-    if (error?.status === 429) {
-      return res.status(503).json({ error: "Providers rate limited. Try again shortly." });
+
+    /* Provider exhaustion → 503, not 500 */
+    if (error?.isProviderExhaustion) {
+      console.error(`❌ [${req.requestId}] All providers unavailable`);
+      return res.status(503).json({
+        error: "AI services are temporarily unavailable. Please try again shortly.",
+        ...(NODE_ENV === "development" ? {
+          requestId: req.requestId,
+          attemptedProviders: error.attemptedProviders,
+          category: error.category,
+        } : {}),
+      });
     }
+
+    /* Genuine internal errors → 500 */
+    console.error(`❌ [${req.requestId}] Internal error:`, error.message);
     return res.status(500).json({
-      error: "AI services unavailable. Please try again.",
+      error: "AI request failed. Please try again.",
       ...(NODE_ENV === "development" ? { details: error.message, requestId: req.requestId } : {}),
     });
   }
@@ -496,7 +857,9 @@ app.post("/api/chat", chatLimiter, validateMessages, async (req, res) => {
 
 app.post("/api/clear-conversation", (req, res) => {
   const { conversationId } = req.body;
-  if (!conversationId) return res.status(400).json({ error: "conversationId required" });
+  if (!conversationId) {
+    return res.status(400).json({ error: "conversationId required" });
+  }
   console.log(`🗑️ [${req.requestId}] Cleared: ${conversationId}`);
   return res.json({ status: "cleared", conversationId });
 });
@@ -509,7 +872,9 @@ app.use((req, res) => res.status(404).json({ error: "Not found" }));
 
 app.use((error, req, res, next) => {
   console.error("❌ Server error:", error.message);
-  if (error.message === "CORS origin not allowed") return res.status(403).json({ error: "CORS blocked" });
+  if (error.message === "CORS origin not allowed") {
+    return res.status(403).json({ error: "CORS blocked" });
+  }
   res.status(500).json({ error: "Internal server error" });
 });
 
@@ -565,4 +930,4 @@ const server = app.listen(PORT, () => {
   console.log("========================================");
 });
 
-server.timeout = TOTAL_AI_REQUEST_TIMEOUT_MS + 5000;
+server.timeout = TOTAL_AI
