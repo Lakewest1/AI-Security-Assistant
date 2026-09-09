@@ -1,50 +1,67 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Shield, Sun, Moon, Send, Copy, Check, RotateCcw, ArrowDown, Trash2, Sparkles } from "lucide-react";
+import { Shield, Sun, Moon, Send, Square, Copy, Check, RotateCcw, ArrowDown, Trash2, Sparkles } from "lucide-react";
 import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 const THINKING_WORDS = [
-  "Fathoming...",
-  "Calculating...",
-  "Reasoning...",
-  "Strategizing...",
-  "Analyzing...",
-  "Correlating...",
-  "Evaluating...",
-  "Synthesizing...",
-  "Processing...",
-  "Connecting...",
-  "Examining...",
-  "Formulating...",
-  "Compiling...",
-  "Reviewing...",
-  "Assessing...",
-  "Mapping...",
-  "Scanning...",
-  "Retrieving...",
-  "Investigating...",
-  "Building...",
+  "Analyzing your security question...",
+  "Working through the security analysis...",
+  "Reviewing cloud security patterns...",
+  "Consulting security frameworks...",
+  "Evaluating security controls...",
+  "Mapping detection strategies...",
 ];
+
+/**
+ * Safe Markdown normalization - only fixes artifacts, never touches code blocks
+ */
+function normalizeMarkdown(text) {
+  if (!text || typeof text !== "string") return text;
+
+  const lines = text.split('\n');
+  const result = [];
+  let inCodeBlock = false;
+
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      result.push(line);
+      continue;
+    }
+
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
+    // Only apply cleanup outside code blocks
+    let cleaned = line;
+    cleaned = cleaned.replace(/svgCopy$/, "");
+    cleaned = cleaned.replace(/&lt;br&gt;/gi, "");
+    cleaned = cleaned.replace(/<br\s*\/?>/gi, "");
+    result.push(cleaned);
+  }
+
+  return result.join('\n');
+}
 
 function useVisualViewport() {
   const [viewport, setViewport] = useState(() => ({
-    height: typeof window !== 'undefined' && window.visualViewport 
-      ? window.visualViewport.height 
-      : window.innerHeight,
+    height: typeof window !== 'undefined' && window.visualViewport
+      ? window.visualViewport.height
+      : typeof window !== 'undefined' ? window.innerHeight : 800,
     keyboardOpen: false,
   }));
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) {
-      const handleResize = () => {
-        setViewport({ height: window.innerHeight, keyboardOpen: false });
-      };
+      const handleResize = () => setViewport({ height: window.innerHeight, keyboardOpen: false });
       window.addEventListener('resize', handleResize);
       return () => window.removeEventListener('resize', handleResize);
     }
@@ -55,8 +72,7 @@ function useVisualViewport() {
     const handleViewportChange = () => {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = requestAnimationFrame(() => {
-        const heightDiff = Math.abs(vv.height - lastHeight);
-        if (heightDiff < 2) return;
+        if (Math.abs(vv.height - lastHeight) < 2) return;
         lastHeight = vv.height;
         setViewport({
           height: vv.height,
@@ -79,12 +95,12 @@ function useVisualViewport() {
   return viewport;
 }
 
-function CodeBlock({ inline, className, children, ...props }) {
+const CodeBlock = memo(function CodeBlock({ inline, className, children, ...props }) {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
   const code = String(children).replace(/\n$/, "");
 
-  const handleCopyCode = async () => {
+  const handleCopyCode = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
       setCopied(true);
@@ -92,7 +108,7 @@ function CodeBlock({ inline, className, children, ...props }) {
     } catch (error) {
       console.error("Failed to copy code:", error);
     }
-  };
+  }, [code]);
 
   if (!inline && match) {
     return (
@@ -108,7 +124,7 @@ function CodeBlock({ inline, className, children, ...props }) {
           style={oneDark}
           language={match[1]}
           PreTag="div"
-          customStyle={{ margin: 0, borderRadius: 0, fontSize: '13px', lineHeight: '1.5' }}
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: '14px', lineHeight: '1.55', maxWidth: 'none' }}
           {...props}
         >
           {code}
@@ -118,19 +134,105 @@ function CodeBlock({ inline, className, children, ...props }) {
   }
 
   return <code className={`inline-code ${className || ''}`} {...props}>{children}</code>;
-}
+});
+
+const MessageItem = memo(function MessageItem({ message, index, copiedMessageId, onCopy, onRetry }) {
+  const isUser = message.role === "user";
+  const formatTime = (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div className={`message ${isUser ? 'user' : 'assistant'} ${message.isError ? 'error' : ''}`}>
+      <div className="message-meta">
+        <span className="message-author">{isUser ? "YOU" : "AI"}</span>
+        {message.timestamp && <span className="message-time">{formatTime(message.timestamp)}</span>}
+      </div>
+
+      <div className="message-content">
+        {!isUser && !message.isError ? (
+          <>
+            <div className="markdown-content">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code: CodeBlock,
+                  table({ children }) {
+                    return <div className="table-wrapper"><table>{children}</table></div>;
+                  },
+                  blockquote({ children }) {
+                    return <blockquote>{children}</blockquote>;
+                  },
+                }}
+              >
+                {message.displayContent}
+              </ReactMarkdown>
+            </div>
+
+            {message.visual && message.visual.needed && (
+              <div className="visual-card">
+                <div className="visual-card-header">
+                  <span className="visual-icon">📊</span>
+                  <span>Visual Learning</span>
+                </div>
+                <div className="visual-card-body">
+                  <div className="visual-placeholder">
+                    <div className="placeholder-icon">🔍</div>
+                    <p>Security diagram</p>
+                    <span>Interactive architecture and attack-flow visualizations can appear here.</span>
+                  </div>
+                </div>
+                {message.visual.query && (
+                  <div className="visual-card-footer">
+                    <span>Topic: {message.visual.query}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {message.metadata && (
+              <div className="metadata-footer">
+                <span className="metadata-provider">Generated in {(message.metadata.responseTimeMs / 1000).toFixed(1)}s</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="plain-message">{message.displayContent}</div>
+        )}
+      </div>
+
+      {!isUser && !message.isError && message.fullContent && (
+        <div className="message-actions">
+          <button className="message-action-btn" onClick={() => onCopy(message.fullContent, index)} aria-label="Copy response" title="Copy response">
+            {copiedMessageId === index ? <Check size={14} /> : <Copy size={14} />}
+          </button>
+          <button className="message-action-btn" onClick={onRetry} aria-label="Retry response" title="Retry">
+            <RotateCcw size={14} />
+          </button>
+        </div>
+      )}
+
+      {message.isError && (
+        <div className="message-actions visible">
+          <button className="message-action-btn error" onClick={onRetry} aria-label="Try again">
+            <RotateCcw size={14} />
+            <span>Try Again</span>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+});
 
 function App() {
-  const [messages, setMessages] = useState([
-    {
-      role: "assistant",
-      content: "👋 Hello! I'm your AI Security Assistant. I can help with cloud security, AWS, Azure, Kubernetes, IAM, incident response, and more. What would you like to explore?",
-      timestamp: new Date().toISOString(),
-    },
-  ]);
+  const [messages, setMessages] = useState([{
+    id: 'init-' + Date.now(),
+    role: "assistant",
+    displayContent: "👋 Hello! I'm your AI Security Assistant. I can help with cloud security, AWS, Azure, Kubernetes, IAM, incident response, and more. What would you like to explore?",
+    fullContent: "👋 Hello! I'm your AI Security Assistant. I can help with cloud security, AWS, Azure, Kubernetes, IAM, incident response, and more. What would you like to explore?",
+    timestamp: new Date().toISOString(),
+  }]);
 
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
   const [thinkingWord, setThinkingWord] = useState(THINKING_WORDS[0]);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem("darkMode");
@@ -144,30 +246,26 @@ function App() {
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const revealTimerRef = useRef(null);
-  const isRevealingRef = useRef(false);
-  const isNearBottomRef = useRef(true);
-  const { viewportHeight, keyboardOpen } = useVisualViewport();
+  const scrollStateRef = useRef({ isNearBottom: true });
+  const requestAbortRef = useRef(null);
 
-  const suggestedQuestions = [
-    "How do I secure my AWS S3 buckets?",
-    "What are the best practices for Kubernetes security?",
-    "Explain IAM roles vs policies",
-    "How to detect and respond to security incidents?",
-    "What is a WAF and when should I use it?",
-  ];
+  const { height: viewportHeight } = useVisualViewport();
+
+  const suggestedQuestions = useMemo(() => [
+    "Secure an S3 bucket",
+    "Detect suspicious IAM activity",
+    "Build a Kubernetes security baseline",
+    "Write a Sigma rule for credential abuse",
+    "Investigate a CloudTrail incident",
+  ], []);
 
   useEffect(() => {
-    if (loading) {
-      const interval = setInterval(() => {
-        setThinkingWord(prev => {
-          const idx = THINKING_WORDS.indexOf(prev);
-          return THINKING_WORDS[(idx + 1) % THINKING_WORDS.length];
-        });
-      }, 1500);
-      return () => clearInterval(interval);
-    }
-  }, [loading]);
+    if (!isRequesting) return;
+    const interval = setInterval(() => {
+      setThinkingWord(prev => THINKING_WORDS[(THINKING_WORDS.indexOf(prev) + 1) % THINKING_WORDS.length]);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [isRequesting]);
 
   useEffect(() => {
     localStorage.setItem("darkMode", JSON.stringify(darkMode));
@@ -178,7 +276,7 @@ function App() {
     const el = textareaRef.current;
     if (el) {
       el.style.height = 'auto';
-      const maxHeight = window.innerWidth <= 600 ? 160 : 220;
+      const maxHeight = window.innerWidth <= 600 ? 160 : 200;
       el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
       el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
     }
@@ -186,8 +284,7 @@ function App() {
 
   useEffect(() => {
     return () => {
-      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-      isRevealingRef.current = false;
+      if (requestAbortRef.current) requestAbortRef.current.abort();
     };
   }, []);
 
@@ -195,149 +292,130 @@ function App() {
     const container = messagesContainerRef.current;
     if (container) {
       container.scrollTop = container.scrollHeight;
+      scrollStateRef.current.isNearBottom = true;
     }
-  }, []);
-
-  const progressiveReveal = useCallback((fullMessage, messageIndex) => {
-    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-    isRevealingRef.current = true;
-
-    const words = fullMessage.split(' ');
-    if (words.length <= 15) {
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[messageIndex] = { ...updated[messageIndex], content: fullMessage };
-        return updated;
-      });
-      isRevealingRef.current = false;
-      return;
-    }
-
-    const chunkSize = words.length > 300 ? 15 : words.length > 150 ? 10 : words.length > 50 ? 7 : 5;
-    const delay = words.length > 300 ? 30 : words.length > 150 ? 40 : words.length > 50 ? 50 : 60;
-    let currentIndex = 0;
-
-    const revealChunk = () => {
-      if (!isRevealingRef.current) return;
-
-      currentIndex += chunkSize;
-      const endIndex = Math.min(currentIndex, words.length);
-      const revealedText = words.slice(0, endIndex).join(' ');
-
-      setMessages(prev => {
-        const updated = [...prev];
-        updated[messageIndex] = { ...updated[messageIndex], content: revealedText };
-        return updated;
-      });
-
-      if (isNearBottomRef.current) {
-        const container = messagesContainerRef.current;
-        if (container) container.scrollTop = container.scrollHeight;
-      }
-
-      if (endIndex < words.length) {
-        revealTimerRef.current = setTimeout(revealChunk, delay);
-      } else {
-        isRevealingRef.current = false;
-        revealTimerRef.current = null;
-      }
-    };
-
-    revealTimerRef.current = setTimeout(revealChunk, delay);
   }, []);
 
   const handleScroll = useCallback(() => {
     const container = messagesContainerRef.current;
-    if (container) {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
-      isNearBottomRef.current = nearBottom;
-      setShowScrollButton(!nearBottom);
-    }
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
+    scrollStateRef.current.isNearBottom = nearBottom;
+    setShowScrollButton(!nearBottom);
   }, []);
 
-  const sendMessage = async (content = input) => {
+  const sendMessage = useCallback(async (content = input) => {
     const trimmedInput = content.trim();
-
-    if (!trimmedInput || loading) return;
+    if (!trimmedInput || isRequesting) return;
 
     if (trimmedInput.length > 4000) {
       setMessages(prev => [...prev, {
+        id: 'error-' + Date.now(),
         role: "assistant",
-        content: "⚠️ Your message exceeds the 4000 character limit. Please shorten it and try again.",
+        displayContent: "⚠️ Your message exceeds the 4000 character limit.",
+        fullContent: "⚠️ Your message exceeds the 4000 character limit.",
         timestamp: new Date().toISOString(),
-        error: true,
+        isError: true,
       }]);
       return;
     }
 
-    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-    isRevealingRef.current = false;
+    if (requestAbortRef.current) requestAbortRef.current.abort();
+    requestAbortRef.current = new AbortController();
 
     const userMessage = {
+      id: 'user-' + Date.now(),
       role: "user",
-      content: trimmedInput,
+      displayContent: trimmedInput,
+      fullContent: trimmedInput,
       timestamp: new Date().toISOString(),
     };
 
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput("");
-    setLoading(true);
+    setIsRequesting(true);
     setIntents([]);
-    setThinkingWord(THINKING_WORDS[Math.floor(Math.random() * 10)]);
-    isNearBottomRef.current = true;
+    setThinkingWord(THINKING_WORDS[0]);
+    scrollStateRef.current.isNearBottom = true;
 
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
     try {
       const apiMessages = updatedMessages
-        .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.content === "string")
-        .map(({ role, content: c }) => ({ role, content: c.slice(0, 4000) }));
+        .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.fullContent === "string")
+        .map(({ role, fullContent: c }) => ({ role, content: c.slice(0, 4000) }));
 
       const response = await fetch(`${API_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMessages, conversationId }),
+        signal: requestAbortRef.current.signal,
       });
 
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "AI request failed");
 
       if (data.conversationId) setConversationId(data.conversationId);
       if (data.intents) setIntents(data.intents);
 
-      const newIndex = updatedMessages.length;
+      const messageId = 'assistant-' + Date.now();
+      const normalizedReply = normalizeMarkdown(data.reply);
+
       setMessages(prev => [...prev, {
+        id: messageId,
         role: "assistant",
-        content: "",
+        displayContent: normalizedReply,
+        fullContent: normalizedReply,
         timestamp: new Date().toISOString(),
         visual: data.visual || null,
+        metadata: data.metadata,
       }]);
 
-      progressiveReveal(data.reply, newIndex);
+      if (scrollStateRef.current.isNearBottom) {
+        setTimeout(scrollToBottom, 50);
+      }
+
     } catch (error) {
+      if (error.name === 'AbortError') return;
+
       setMessages(prev => [...prev, {
+        id: 'error-' + Date.now(),
         role: "assistant",
-        content: `⚠️ ${error.message || "Unable to connect to the AI server. Please check your connection or try again."}`,
+        displayContent: `⚠️ ${error.message || "Unable to reach the AI service. Please try again."}`,
+        fullContent: `⚠️ ${error.message || "Unable to reach the AI service. Please try again."}`,
         timestamp: new Date().toISOString(),
-        error: true,
+        isError: true,
       }]);
     } finally {
-      setLoading(false);
+      setIsRequesting(false);
+      requestAbortRef.current = null;
     }
-  };
+  }, [input, isRequesting, messages, conversationId, scrollToBottom]);
 
-  const handleKeyDown = (event) => {
+  const handleStop = useCallback(() => {
+    if (requestAbortRef.current) {
+      requestAbortRef.current.abort();
+      requestAbortRef.current = null;
+    }
+    setIsRequesting(false);
+  }, []);
+
+  const handleKeyDown = useCallback((event) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       sendMessage();
     }
-  };
+  }, [sendMessage]);
 
-  const clearChat = async () => {
-    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-    isRevealingRef.current = false;
+  const clearChat = useCallback(async () => {
+    if (requestAbortRef.current) requestAbortRef.current.abort();
+    setIsRequesting(false);
 
     if (conversationId) {
       try {
@@ -354,17 +432,19 @@ function App() {
     setConversationId(null);
     setIntents([]);
     setMessages([{
+      id: 'init-' + Date.now(),
       role: "assistant",
-      content: "👋 Chat cleared! Ready for a new security question. What would you like to explore?",
+      displayContent: "👋 Chat cleared! Ready for a new security question.",
+      fullContent: "👋 Chat cleared! Ready for a new security question.",
       timestamp: new Date().toISOString(),
     }]);
-  };
+  }, [conversationId]);
 
-  const handleSuggestionClick = (suggestion) => {
+  const handleSuggestionClick = useCallback((suggestion) => {
     sendMessage(suggestion);
-  };
+  }, [sendMessage]);
 
-  const handleCopyMessage = async (content, index) => {
+  const handleCopyMessage = useCallback(async (content, index) => {
     try {
       await navigator.clipboard.writeText(content);
       setCopiedMessageId(index);
@@ -372,52 +452,104 @@ function App() {
     } catch (error) {
       console.error("Failed to copy:", error);
     }
-  };
+  }, []);
 
-  const handleRetry = () => {
-    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-    isRevealingRef.current = false;
+  const handleRetry = useCallback(() => {
+    if (requestAbortRef.current) requestAbortRef.current.abort();
+    setIsRequesting(false);
 
-    const lastUserMessage = [...messages].reverse().find(m => m.role === "user");
-    if (lastUserMessage) {
-      setMessages(prev => prev.filter(m => !m.error));
-      sendMessage(lastUserMessage.content);
-    }
-  };
+    const lastUserIndex = [...messages].reverse().findIndex(m => m.role === "user");
+    if (lastUserIndex === -1) return;
 
-  const formatTimestamp = (timestamp) => {
-    return new Date(timestamp).toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+    const actualIndex = messages.length - 1 - lastUserIndex;
+    const lastUserMessage = messages[actualIndex];
+
+    const historyBeforeUser = messages.slice(0, actualIndex);
+    const userMsg = { ...lastUserMessage };
+    const cleanHistory = historyBeforeUser.filter(m => !m.isError);
+    const newMessages = [...cleanHistory, userMsg];
+    setMessages(newMessages);
+
+    const apiMessages = newMessages
+      .filter(m => (m.role === "user" || m.role === "assistant") && typeof m.fullContent === "string")
+      .map(({ role, fullContent: c }) => ({ role, content: c.slice(0, 4000) }));
+
+    setIsRequesting(true);
+    setThinkingWord(THINKING_WORDS[0]);
+    scrollStateRef.current.isNearBottom = true;
+    requestAbortRef.current = new AbortController();
+
+    fetch(`${API_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: apiMessages, conversationId }),
+      signal: requestAbortRef.current.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((data) => {
+        if (data.conversationId) setConversationId(data.conversationId);
+        if (data.intents) setIntents(data.intents);
+
+        const messageId = 'assistant-' + Date.now();
+        const normalizedReply = normalizeMarkdown(data.reply);
+
+        setMessages(prev => [...prev, {
+          id: messageId,
+          role: "assistant",
+          displayContent: normalizedReply,
+          fullContent: normalizedReply,
+          timestamp: new Date().toISOString(),
+          visual: data.visual || null,
+          metadata: data.metadata,
+        }]);
+
+        if (scrollStateRef.current.isNearBottom) {
+          setTimeout(scrollToBottom, 50);
+        }
+      })
+      .catch((error) => {
+        if (error.name === 'AbortError') return;
+        setMessages(prev => [...prev, {
+          id: 'error-' + Date.now(),
+          role: "assistant",
+          displayContent: `⚠️ ${error.message || "Unable to reach the AI service."}`,
+          fullContent: `⚠️ ${error.message || "Unable to reach the AI service."}`,
+          timestamp: new Date().toISOString(),
+          isError: true,
+        }]);
+      })
+      .finally(() => {
+        setIsRequesting(false);
+        requestAbortRef.current = null;
+      });
+  }, [messages, conversationId, scrollToBottom]);
+
+  const formatTimestamp = useCallback((timestamp) => {
+    return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, []);
 
   return (
     <div className={`app ${darkMode ? 'dark' : ''}`} style={{ height: `${viewportHeight}px` }}>
       <header className="header">
         <div className="header-content">
           <div className="header-left">
-            <Shield size={22} className="header-icon" />
+            <Shield size={20} className="header-icon" />
             <div className="header-text">
               <h1 className="header-title">AI Security</h1>
               <p className="header-subtitle">Cloud Security • AWS • Azure • Kubernetes</p>
             </div>
           </div>
           <div className="header-actions">
-            <button 
-              className="icon-button" 
-              onClick={() => setDarkMode(!darkMode)}
-              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-              title={darkMode ? "Light mode" : "Dark mode"}
-            >
+            <button className="icon-button" onClick={() => setDarkMode(!darkMode)} aria-label="Toggle theme" title="Toggle theme">
               {darkMode ? <Sun size={18} /> : <Moon size={18} />}
             </button>
-            <button 
-              className="icon-button" 
-              onClick={clearChat}
-              aria-label="Clear chat"
-              title="Clear chat"
-            >
+            <button className="icon-button" onClick={clearChat} aria-label="Clear chat" title="Clear chat">
               <Trash2 size={18} />
             </button>
           </div>
@@ -427,9 +559,7 @@ function App() {
       {intents.length > 0 && (
         <div className="intent-badges">
           {intents.map((intent) => (
-            <span key={intent} className="intent-badge">
-              {intent.replace('_', ' ')}
-            </span>
+            <span key={intent} className="intent-badge">{intent.replace('_', ' ')}</span>
           ))}
         </div>
       )}
@@ -443,11 +573,7 @@ function App() {
             </p>
             <div className="suggestions-list">
               {suggestedQuestions.map((question, index) => (
-                <button
-                  key={index}
-                  className="suggestion-chip"
-                  onClick={() => handleSuggestionClick(question)}
-                >
+                <button key={index} className="suggestion-chip" onClick={() => handleSuggestionClick(question)}>
                   {question}
                 </button>
               ))}
@@ -455,113 +581,26 @@ function App() {
           </div>
         )}
 
-        <div 
-          className="messages" 
-          ref={messagesContainerRef}
-          onScroll={handleScroll}
-          role="log"
-          aria-live="polite"
-          aria-label="Chat messages"
-        >
+        <div className="messages" ref={messagesContainerRef} onScroll={handleScroll} role="log" aria-live="polite" aria-label="Chat messages">
           {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`message ${message.role} ${message.error ? 'error' : ''}`}
-            >
-              <div className="message-meta">
-                <span className="message-author">
-                  {message.role === "user" ? "YOU" : "AI"}
-                </span>
-                {message.timestamp && (
-                  <span className="message-time">{formatTimestamp(message.timestamp)}</span>
-                )}
-              </div>
-
-              <div className="message-content">
-                {message.role === "assistant" && !message.error ? (
-                  <>
-                    <div className="markdown-content">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          code: CodeBlock,
-                          table({ children }) {
-                            return (
-                              <div className="table-wrapper">
-                                <table>{children}</table>
-                              </div>
-                            );
-                          },
-                          blockquote({ children }) {
-                            return <blockquote className="blockquote">{children}</blockquote>;
-                          },
-                        }}
-                      >
-                        {message.content}
-                      </ReactMarkdown>
-                    </div>
-
-                    {message.visual && message.visual.needed && (
-                      <div className="visual-card">
-                        <div className="visual-card-header">
-                          <span className="visual-icon" aria-hidden="true">📊</span>
-                          <span>Visual Learning</span>
-                        </div>
-                        <div className="visual-card-body">
-                          <div className="visual-placeholder">
-                            <div className="placeholder-icon" aria-hidden="true">🔍</div>
-                            <p>Visual content coming soon</p>
-                            <span>We're preparing diagram support</span>
-                          </div>
-                        </div>
-                        {message.visual.query && (
-                          <div className="visual-card-footer">
-                            <span>Topic: {message.visual.query}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="plain-message">{message.content}</div>
-                )}
-              </div>
-
-              {message.role === "assistant" && !message.error && message.content && (
-                <div className="message-actions">
-                  <button
-                    className="message-action-btn"
-                    onClick={() => handleCopyMessage(message.content, index)}
-                    aria-label="Copy response"
-                  >
-                    {copiedMessageId === index ? <Check size={14} /> : <Copy size={14} />}
-                    <span>{copiedMessageId === index ? 'Copied' : 'Copy'}</span>
-                  </button>
-                  <button
-                    className="message-action-btn"
-                    onClick={handleRetry}
-                    aria-label="Retry response"
-                  >
-                    <RotateCcw size={14} />
-                    <span>Retry</span>
-                  </button>
-                </div>
-              )}
-            </div>
+            <MessageItem
+              key={message.id}
+              message={message}
+              index={index}
+              copiedMessageId={copiedMessageId}
+              onCopy={handleCopyMessage}
+              onRetry={handleRetry}
+            />
           ))}
 
-          {loading && (
+          {isRequesting && (
             <div className="message assistant loading">
               <div className="message-meta">
                 <span className="message-author">AI</span>
               </div>
               <div className="message-content">
                 <div className="thinking-indicator">
-                  <div className="thinking-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </div>
+                  <div className="thinking-dots"><span></span><span></span><span></span></div>
                   <span className="thinking-text">{thinkingWord}</span>
                 </div>
               </div>
@@ -572,11 +611,7 @@ function App() {
         </div>
 
         {showScrollButton && (
-          <button 
-            className="scroll-button" 
-            onClick={scrollToBottom}
-            aria-label="Scroll to bottom"
-          >
+          <button className="scroll-button" onClick={scrollToBottom} aria-label="Scroll to bottom">
             <ArrowDown size={18} />
           </button>
         )}
@@ -590,23 +625,21 @@ function App() {
               onKeyDown={handleKeyDown}
               placeholder="Ask a security question..."
               rows="1"
-              disabled={loading}
+              disabled={isRequesting}
               aria-label="Message input"
               maxLength={4000}
             />
-            <button
-              className="send-button"
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-              aria-label="Send message"
-            >
-              <Send size={18} />
-              <span>Send</span>
-            </button>
+            {isRequesting ? (
+              <button className="stop-button" onClick={handleStop} aria-label="Stop generation">
+                <Square size={18} />
+              </button>
+            ) : (
+              <button className="send-button" onClick={() => sendMessage()} disabled={!input.trim()} aria-label="Send message">
+                <Send size={18} />
+              </button>
+            )}
           </div>
-          <p className="composer-hint">
-            Enter to send • Shift + Enter for new line • Markdown supported
-          </p>
+          <p className="composer-hint">Enter to send • Shift + Enter for new line</p>
         </div>
       </main>
     </div>
