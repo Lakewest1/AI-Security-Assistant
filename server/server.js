@@ -930,4 +930,4 @@ const server = app.listen(PORT, () => {
   console.log("========================================");
 });
 
-server.timeout = TOTAL_AI
+server.timeout = TOTAL_AI_REQUEST_TIMEOUT_MS + 5000;
