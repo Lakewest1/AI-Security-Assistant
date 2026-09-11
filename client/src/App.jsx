@@ -25,6 +25,8 @@ import "./App.css";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
+const SCROLL_BOTTOM_THRESHOLD = 48;
+
 const THINKING_WORDS = [
   "Analyzing your question...",
   "Reviewing relevant security patterns...",
@@ -40,9 +42,10 @@ const INITIAL_GREETING =
 const CLEARED_GREETING =
   "Chat cleared. Ready for a new security or safety question.";
 
-/**
- * Safe Markdown normalization — only fixes artifacts, never touches code blocks.
- */
+/* --------------------------------------------------------------------------
+   Markdown normalization — strips artifact fragments outside code blocks.
+   -------------------------------------------------------------------------- */
+
 function normalizeMarkdown(text) {
   if (!text || typeof text !== "string") return text;
 
@@ -72,10 +75,70 @@ function normalizeMarkdown(text) {
   return result.join("\n");
 }
 
-/**
- * Build a fresh greeting/system message. The `init-` id prefix is what the
- * empty-state detector uses to distinguish a genuinely new conversation.
- */
+/* --------------------------------------------------------------------------
+   Frontend safety net: strip internal schema labels that the backend
+   sometimes emits as standalone lines (WHY IT MATTERS, CONCEPT, etc.).
+   Runs outside fenced code blocks only.
+   -------------------------------------------------------------------------- */
+
+const SCHEMA_LABELS = [
+  "WHY IT MATTERS FOR AN S3 BUCKET",
+  "WHY IT MATTERS",
+  "WHAT IT MEANS FOR AN S3 BUCKET",
+  "WHAT IT MEANS FOR S3",
+  "WHAT IT MEANS",
+  "WHEN YOU NEED IT",
+  "WHEN TO USE IT",
+  "HOW TO CREATE (CONSOLE)",
+  "HOW TO CREATE",
+  "HOW TO CONFIGURE",
+  "WHAT IT IS",
+  "WHY IT EXISTS",
+  "OBJECT",
+  "FEATURE",
+  "CONCEPT",
+  "ACTION",
+  "RESULT",
+  "DESCRIPTION",
+  "OVERVIEW",
+];
+
+function stripSchemaLabels(text) {
+  if (!text || typeof text !== "string") return text;
+
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const labelAlternation = SCHEMA_LABELS.map(escapeRegex).join("|");
+  const standaloneLabel = new RegExp(
+    `^(#{1,6}\\s+|[-*+]\\s+|\\*\\*\\s*)?(${labelAlternation})\\s*:?\\s*(\\*\\*)?\\s*$`,
+    "i"
+  );
+
+  const lines = text.split("\n");
+  const out = [];
+  let inCodeBlock = false;
+
+  for (const line of lines) {
+    if (line.trim().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      out.push(line);
+      continue;
+    }
+
+    if (inCodeBlock) {
+      out.push(line);
+      continue;
+    }
+
+    if (standaloneLabel.test(line.trim())) {
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
 function buildGreetingMessage(content = INITIAL_GREETING) {
   return {
     id: "init-" + Date.now(),
@@ -135,10 +198,6 @@ function useVisualViewport() {
   return viewport;
 }
 
-/* --------------------------------------------------------------------------
-   Static suggestion card definitions — hoisted out of App()
-   -------------------------------------------------------------------------- */
-
 const SUGGESTION_CARDS = [
   {
     icon: Search,
@@ -183,6 +242,106 @@ const SUGGESTION_CARDS = [
       "What practical steps can I take to stay safe online and protect my personal data?",
   },
 ];
+
+function nodeToText(node) {
+  if (node === null || node === undefined || node === false) return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeToText).join("");
+  if (typeof node === "object" && node.props) {
+    return nodeToText(node.props.children);
+  }
+  return "";
+}
+
+/* --------------------------------------------------------------------------
+   ResponsiveTable
+   Desktop: normal <table>.
+   Mobile:  flat stacked label/value rows — no horizontal scroll needed.
+   -------------------------------------------------------------------------- */
+
+const ResponsiveTable = memo(function ResponsiveTable({ children }) {
+  const nodes = Array.isArray(children) ? children : [children];
+
+  const headerRow = (() => {
+    for (const node of nodes) {
+      if (!node || !node.props) continue;
+      const kids = node.props.children;
+      if (node.type === "thead" && kids) {
+        const headRow = Array.isArray(kids) ? kids[0] : kids;
+        const cells = headRow?.props?.children;
+        const arr = Array.isArray(cells) ? cells : [cells];
+        return arr.map((c) => nodeToText(c?.props?.children));
+      }
+    }
+    return [];
+  })();
+
+  const bodyRows = (() => {
+    const rows = [];
+    for (const node of nodes) {
+      if (!node || !node.props) continue;
+      if (node.type === "tbody") {
+        const rowNodes = Array.isArray(node.props.children)
+          ? node.props.children
+          : [node.props.children];
+        for (const row of rowNodes) {
+          if (!row || !row.props) continue;
+          const cellNodes = Array.isArray(row.props.children)
+            ? row.props.children
+            : [row.props.children];
+          rows.push(cellNodes.map((c) => nodeToText(c?.props?.children)));
+        }
+      }
+    }
+    return rows;
+  })();
+
+  return (
+    <div className="responsive-table">
+      <div className="table-wrapper">
+        <table>
+          {headerRow.length > 0 && (
+            <thead>
+              <tr>
+                {headerRow.map((label, i) => (
+                  <th key={i}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          {bodyRows.length > 0 && (
+            <tbody>
+              {bodyRows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          )}
+        </table>
+      </div>
+
+      <div className="mobile-table" role="list">
+        {bodyRows.map((row, ri) => (
+          <div className="mobile-table-row" role="listitem" key={ri}>
+            {row.map((cell, ci) => (
+              <div className="mobile-table-field" key={ci}>
+                {headerRow[ci] && (
+                  <div className="mobile-table-label">{headerRow[ci]}</div>
+                )}
+                <div className="mobile-table-value">
+                  {cell || <span className="mobile-table-empty">—</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
 
 /* --------------------------------------------------------------------------
    CodeBlock
@@ -290,13 +449,7 @@ const MessageItem = memo(function MessageItem({
                 remarkPlugins={[remarkGfm]}
                 components={{
                   code: CodeBlock,
-                  table({ children }) {
-                    return (
-                      <div className="table-wrapper">
-                        <table>{children}</table>
-                      </div>
-                    );
-                  },
+                  table: ResponsiveTable,
                   blockquote({ children }) {
                     return <blockquote>{children}</blockquote>;
                   },
@@ -306,38 +459,14 @@ const MessageItem = memo(function MessageItem({
               </ReactMarkdown>
             </div>
 
-            {message.visual && message.visual.needed && (
-              <div className="visual-card">
-                <div className="visual-card-header">
-                  <span className="visual-icon">📊</span>
-                  <span>Visual Learning</span>
-                </div>
-                <div className="visual-card-body">
-                  <div className="visual-placeholder">
-                    <div className="placeholder-icon">🔍</div>
-                    <p>Security diagram</p>
-                    <span>
-                      Interactive architecture and attack-flow visualizations can
-                      appear here.
-                    </span>
-                  </div>
-                </div>
-                {message.visual.query && (
-                  <div className="visual-card-footer">
-                    <span>Topic: {message.visual.query}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {message.metadata && (
+            {message.metadata && message.metadata.responseTimeMs ? (
               <div className="metadata-footer">
                 <span className="metadata-provider">
                   Generated in{" "}
                   {(message.metadata.responseTimeMs / 1000).toFixed(1)}s
                 </span>
               </div>
-            )}
+            ) : null}
           </>
         ) : (
           <div className="plain-message">{message.displayContent}</div>
@@ -418,8 +547,6 @@ function App() {
     typeof messages[0]?.id === "string" &&
     messages[0].id.startsWith("init-");
 
-  /* ---------- Effects ---------- */
-
   useEffect(() => {
     if (!isRequesting) return;
     const interval = setInterval(() => {
@@ -454,26 +581,59 @@ function App() {
     };
   }, []);
 
-  /* ---------- Scroll ---------- */
-
-  const scrollToBottom = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-      scrollStateRef.current.isNearBottom = true;
-    }
-  }, []);
-
-  const handleScroll = useCallback(() => {
+  const computeScrollMetrics = useCallback(() => {
     const container = messagesContainerRef.current;
     if (!container) return;
     const { scrollTop, scrollHeight, clientHeight } = container;
-    const nearBottom = scrollHeight - scrollTop - clientHeight < 100;
-    scrollStateRef.current.isNearBottom = nearBottom;
-    setShowScrollButton(!nearBottom);
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const hasOverflow = scrollHeight - clientHeight > SCROLL_BOTTOM_THRESHOLD;
+    const isAtBottom = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
+    scrollStateRef.current.isNearBottom = isAtBottom;
+    setShowScrollButton(hasOverflow && !isAtBottom);
   }, []);
 
-  /* ---------- Shared request runner ---------- */
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const raf = requestAnimationFrame(computeScrollMetrics);
+    const observer = new MutationObserver(() => {
+      if (scrollStateRef.current.isNearBottom) {
+        container.scrollTop = container.scrollHeight;
+      }
+      computeScrollMetrics();
+    });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, [computeScrollMetrics]);
+
+  const scrollToBottom = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (prefersReducedMotion) {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+    scrollStateRef.current.isNearBottom = true;
+    setShowScrollButton(false);
+  }, []);
+
+  const handleScroll = useCallback(() => {
+    computeScrollMetrics();
+  }, [computeScrollMetrics]);
 
   const runChatRequest = useCallback(
     async (apiMessages) => {
@@ -503,7 +663,9 @@ function App() {
         if (data.conversationId) setConversationId(data.conversationId);
         if (data.intents) setIntents(data.intents);
 
-        const normalizedReply = normalizeMarkdown(data.reply);
+        const normalizedReply = stripSchemaLabels(
+          normalizeMarkdown(data.reply)
+        );
 
         setMessages((prev) => [
           ...prev,
@@ -513,7 +675,6 @@ function App() {
             displayContent: normalizedReply,
             fullContent: normalizedReply,
             timestamp: new Date().toISOString(),
-            visual: data.visual || null,
             metadata: data.metadata,
           },
         ]);
@@ -523,7 +684,6 @@ function App() {
         }
       } catch (error) {
         if (error.name === "AbortError") return;
-
         setMessages((prev) => [
           ...prev,
           {
@@ -550,8 +710,6 @@ function App() {
     },
     [conversationId, scrollToBottom]
   );
-
-  /* ---------- Send ---------- */
 
   const sendMessage = useCallback(
     async (content = input) => {
@@ -603,8 +761,6 @@ function App() {
     [input, isRequesting, messages, runChatRequest]
   );
 
-  /* ---------- Stop ---------- */
-
   const handleStop = useCallback(() => {
     if (requestAbortRef.current) {
       requestAbortRef.current.abort();
@@ -612,8 +768,6 @@ function App() {
     }
     setIsRequesting(false);
   }, []);
-
-  /* ---------- Keyboard ---------- */
 
   const handleKeyDown = useCallback(
     (event) => {
@@ -624,8 +778,6 @@ function App() {
     },
     [sendMessage]
   );
-
-  /* ---------- Clear / New chat ---------- */
 
   const clearChat = useCallback(async () => {
     if (requestAbortRef.current) requestAbortRef.current.abort();
@@ -649,16 +801,12 @@ function App() {
     setMessages([buildGreetingMessage(CLEARED_GREETING)]);
   }, [conversationId]);
 
-  /* ---------- Suggestions ---------- */
-
   const handleSuggestionClick = useCallback(
     (suggestion) => {
       sendMessage(suggestion);
     },
     [sendMessage]
   );
-
-  /* ---------- Copy ---------- */
 
   const handleCopyMessage = useCallback(async (content, index) => {
     try {
@@ -669,8 +817,6 @@ function App() {
       console.error("Failed to copy:", error);
     }
   }, []);
-
-  /* ---------- Retry ---------- */
 
   const handleRetry = useCallback(() => {
     if (requestAbortRef.current) requestAbortRef.current.abort();
@@ -733,14 +879,6 @@ function App() {
           </div>
 
           <div className="header-actions">
-            <button
-              className="new-chat-button"
-              onClick={clearChat}
-              aria-label="Start new chat"
-            >
-              <Plus size={16} />
-              <span className="new-chat-label">New Chat</span>
-            </button>
             <button
               className="icon-button"
               onClick={() => setDarkMode(!darkMode)}
@@ -863,6 +1001,16 @@ function App() {
         <div className="composer">
           <div className="composer-inner">
             <div className="composer-box">
+              <button
+                type="button"
+                className="new-chat-inline-button"
+                onClick={clearChat}
+                aria-label="Start new chat"
+                title="Start new chat"
+              >
+                <Plus size={18} />
+              </button>
+
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -874,6 +1022,7 @@ function App() {
                 aria-label="Message input"
                 maxLength={4000}
               />
+
               {isRequesting ? (
                 <button
                   className="stop-button"

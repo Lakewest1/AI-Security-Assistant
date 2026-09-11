@@ -1,8 +1,10 @@
 /* ==========================================================================
    Lakewest AI Security Assistant — Production CSS
    Premium conversational AI for security & safety
+   TYPOGRAPHY PRIORITY: ChatGPT-comfortable reading on all devices
    Subtle stripe-gradient atmosphere · Animated blue brand title
-   ChatGPT-comfortable typography · Hardened against horizontal overflow
+   16px-17px body text · 1.7 line height · Generous spacing
+   Responsive tables: desktop table / mobile flat stacked rows
    ========================================================================== */
 
 * {
@@ -93,7 +95,6 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* Background atmosphere — extremely subtle */
   --gradient-blue: rgba(37, 99, 235, 0.045);
   --gradient-violet: rgba(99, 102, 241, 0.035);
   --gradient-cyan: rgba(14, 165, 233, 0.025);
@@ -101,7 +102,6 @@
   --stripe-tint: rgba(37, 99, 235, 0.020);
   --stripe-tint-soft: rgba(37, 99, 235, 0.010);
 
-  /* Brand title gradient (light) */
   --brand-1: #1d4ed8;
   --brand-2: #2563eb;
   --brand-3: #3b82f6;
@@ -171,7 +171,7 @@
 }
 
 /* ==========================================================================
-   Base — hard containment of the horizontal axis
+   Base
    ========================================================================== */
 
 html {
@@ -186,7 +186,7 @@ body {
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
-  line-height: 1.65;
+  line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-tap-highlight-color: transparent;
@@ -210,8 +210,7 @@ body {
 }
 
 /* ==========================================================================
-   App Shell — stripe-gradient atmosphere
-   Extremely faint. Never competes with content.
+   App Shell
    ========================================================================== */
 
 .app {
@@ -385,12 +384,8 @@ body {
 }
 
 @keyframes brandFlow {
-  0% {
-    background-position: 0% 50%;
-  }
-  100% {
-    background-position: 200% 50%;
-  }
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
 }
 
 .header-subtitle {
@@ -627,24 +622,25 @@ body {
 }
 
 .empty-state-title {
-  font-size: clamp(21px, 5.6vw, 26px);
+  font-size: clamp(22px, 5.6vw, 28px);
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
-  line-height: 1.3;
-  margin-bottom: 12px;
+  line-height: 1.35;
+  margin-bottom: 14px;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .empty-state-description {
-  font-size: clamp(14.5px, 3.8vw, 15.5px);
+  font-size: clamp(15px, 3.8vw, 16px);
   color: var(--text-secondary);
-  line-height: 1.65;
+  line-height: 1.7;
   max-width: 540px;
   margin: 0 auto 32px;
   overflow-wrap: anywhere;
   word-break: break-word;
+  font-weight: 400;
 }
 
 .suggestion-grid {
@@ -804,7 +800,6 @@ body {
   word-wrap: break-word;
 }
 
-/* User Bubble */
 .message.user .message-content {
   display: inline-block;
   max-width: 100%;
@@ -814,8 +809,8 @@ body {
   padding: 12px 17px;
   border-radius: 18px;
   border-bottom-right-radius: 6px;
-  font-size: 16.5px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.65;
   text-align: left;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10);
   overflow-wrap: anywhere;
@@ -823,12 +818,11 @@ body {
   font-weight: 400;
 }
 
-/* Assistant Message — the hero content */
 .message.assistant .message-content {
   background: transparent;
   padding: 0 0 0 16px;
-  font-size: 17px;
-  line-height: 1.72;
+  font-size: 16.5px;
+  line-height: 1.7;
   font-weight: 400;
   color: var(--text);
   width: 100%;
@@ -838,7 +832,7 @@ body {
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-break: break-word;
-  letter-spacing: -0.002em;
+  letter-spacing: normal;
 }
 
 .dark .message.assistant .message-content {
@@ -852,7 +846,7 @@ body {
   border-radius: var(--radius-md);
   color: var(--danger);
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
 .plain-message {
@@ -860,17 +854,17 @@ body {
   overflow-wrap: anywhere;
   word-break: break-word;
   min-width: 0;
-  font-size: 17px;
-  line-height: 1.72;
+  font-size: 16.5px;
+  line-height: 1.7;
 }
 
 /* ==========================================================================
-   Markdown Typography — ChatGPT-comfortable reading scale
+   Markdown Typography
    ========================================================================== */
 
 .markdown-content {
-  font-size: 17px;
-  line-height: 1.72;
+  font-size: 16.5px;
+  line-height: 1.7;
   font-weight: 400;
   color: var(--text);
   width: 100%;
@@ -880,21 +874,17 @@ body {
   word-wrap: break-word;
   word-break: break-word;
   white-space: normal;
-  letter-spacing: -0.002em;
+  letter-spacing: normal;
 }
 
-.markdown-content > *:first-child {
-  margin-top: 0;
-}
-.markdown-content > *:last-child {
-  margin-bottom: 0;
-}
+.markdown-content > *:first-child { margin-top: 0; }
+.markdown-content > *:last-child { margin-bottom: 0; }
 
 .markdown-content h1 {
-  font-size: 1.72rem;
+  font-size: 1.75rem;
   font-weight: 700;
-  margin: 2rem 0 0.9rem;
-  line-height: 1.28;
+  margin: 2rem 0 1rem;
+  line-height: 1.3;
   letter-spacing: -0.022em;
   color: var(--text);
   max-width: 100%;
@@ -903,9 +893,9 @@ body {
 }
 
 .markdown-content h2 {
-  font-size: 1.45rem;
+  font-size: 1.48rem;
   font-weight: 650;
-  margin: 1.8rem 0 0.75rem;
+  margin: 1.85rem 0 0.85rem;
   line-height: 1.32;
   letter-spacing: -0.018em;
   color: var(--text);
@@ -915,9 +905,9 @@ body {
 }
 
 .markdown-content h3 {
-  font-size: 1.22rem;
+  font-size: 1.25rem;
   font-weight: 600;
-  margin: 1.55rem 0 0.6rem;
+  margin: 1.65rem 0 0.7rem;
   line-height: 1.36;
   letter-spacing: -0.012em;
   color: var(--text);
@@ -927,30 +917,31 @@ body {
 }
 
 .markdown-content h4 {
-  font-size: 1.06rem;
+  font-size: 1.1rem;
   font-weight: 600;
-  margin: 1.35rem 0 0.55rem;
+  margin: 1.45rem 0 0.6rem;
   color: var(--text);
   letter-spacing: -0.005em;
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
+  line-height: 1.35;
 }
 
 .markdown-content p {
-  margin: 0 0 1.15rem;
+  margin: 0 0 1.2rem;
   overflow-wrap: anywhere;
   word-wrap: break-word;
   word-break: break-word;
   color: var(--text);
   max-width: 100%;
   min-width: 0;
-  line-height: 1.72;
+  line-height: 1.7;
 }
 
 .markdown-content ul,
 .markdown-content ol {
-  margin: 0 0 1.15rem;
+  margin: 0 0 1.2rem;
   padding-left: 1.6rem;
   color: var(--text);
   max-width: 100%;
@@ -958,18 +949,19 @@ body {
 }
 
 .markdown-content li {
-  margin: 0.4rem 0;
+  margin: 0.5rem 0;
   overflow-wrap: anywhere;
   word-wrap: break-word;
   word-break: break-word;
   color: var(--text);
   min-width: 0;
   line-height: 1.7;
+  font-size: 16.5px;
 }
 
 .markdown-content li > ul,
 .markdown-content li > ol {
-  margin: 0.4rem 0;
+  margin: 0.5rem 0;
 }
 
 .markdown-content a {
@@ -989,8 +981,8 @@ body {
 }
 
 .markdown-content blockquote {
-  margin: 1.25rem 0;
-  padding: 10px 18px;
+  margin: 1.35rem 0;
+  padding: 12px 18px;
   border-left: 3px solid var(--border);
   color: var(--text-secondary);
   font-style: italic;
@@ -1001,7 +993,7 @@ body {
   overflow-wrap: anywhere;
   word-break: break-word;
   min-width: 0;
-  font-size: 17px;
+  font-size: 16.5px;
   line-height: 1.7;
 }
 
@@ -1027,12 +1019,12 @@ body {
    ========================================================================== */
 
 .inline-code {
-  padding: 0.14em 0.44em;
+  padding: 0.16em 0.48em;
   background: var(--inline-code-bg);
   border: 1px solid var(--inline-code-border);
   border-radius: 5px;
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: 0.94em;
   color: var(--inline-code-text);
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1042,10 +1034,21 @@ body {
 }
 
 /* ==========================================================================
-   Tables — only the wrapper scrolls, never the page
+   Responsive Table
+   Desktop: normal <table>.
+   Mobile:  flat stacked label/value rows, no horizontal scroll needed.
    ========================================================================== */
 
+.responsive-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 1.6rem 0;
+  box-sizing: border-box;
+}
+
 .table-wrapper {
+  display: block;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1055,26 +1058,26 @@ body {
   overscroll-behavior-x: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  margin: 1.5rem 0;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   box-sizing: border-box;
 }
 
-.markdown-content table {
+.responsive-table table {
   border-collapse: collapse;
   font-size: 14.5px;
   color: var(--text);
+  width: 100%;
   min-width: 100%;
-  line-height: 1.55;
+  line-height: 1.7;
 }
 
-.markdown-content thead {
+.responsive-table thead {
   background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
 }
 
-.markdown-content th {
-  padding: 12px 16px;
+.responsive-table th {
+  padding: 13px 18px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-weight: 600;
@@ -1082,34 +1085,105 @@ body {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-secondary);
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
-.markdown-content td {
-  padding: 12px 16px;
+.responsive-table td {
+  padding: 13px 18px;
   border-bottom: 1px solid var(--border-light);
   text-align: left;
   word-break: normal;
   overflow-wrap: anywhere;
   vertical-align: top;
   color: var(--text);
-  line-height: 1.55;
+  line-height: 1.7;
+  font-size: 14.5px;
 }
 
-.markdown-content tbody tr:last-child td {
+.responsive-table tbody tr:last-child td {
   border-bottom: none;
 }
 
-.markdown-content tbody tr:hover {
+.responsive-table tbody tr:hover {
   background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
 }
 
+.mobile-table {
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.mobile-table-row {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mobile-table-row + .mobile-table-row {
+  border-top: 1px solid var(--border-light);
+}
+
+.mobile-table-row:first-child { padding-top: 6px; }
+.mobile-table-row:last-child { padding-bottom: 6px; }
+
+.mobile-table-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.mobile-table-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  line-height: 1.3;
+  margin: 0;
+}
+
+.mobile-table-value {
+  font-size: 16.5px;
+  line-height: 1.7;
+  color: var(--text);
+  overflow-wrap: break-word;
+  word-break: normal;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  font-weight: 400;
+}
+
+.mobile-table-empty { color: var(--text-tertiary); }
+
 /* ==========================================================================
-   Code Blocks — local horizontal scroll only
+   Code Blocks
    ========================================================================== */
 
 .code-block {
-  margin: 1.5rem 0;
+  margin: 1.6rem 0;
   border-radius: var(--radius-md);
   overflow: hidden;
   max-width: 100%;
@@ -1223,24 +1297,12 @@ body {
   animation: pulse 1.4s infinite;
 }
 
-.thinking-dots span:nth-child(2) {
-  animation-delay: 0.18s;
-}
-.thinking-dots span:nth-child(3) {
-  animation-delay: 0.36s;
-}
+.thinking-dots span:nth-child(2) { animation-delay: 0.18s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.36s; }
 
 @keyframes pulse {
-  0%,
-  60%,
-  100% {
-    transform: translateY(0);
-    opacity: 0.55;
-  }
-  30% {
-    transform: translateY(-5px);
-    opacity: 1;
-  }
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+  30% { transform: translateY(-5px); opacity: 1; }
 }
 
 .thinking-text {
@@ -1320,89 +1382,6 @@ body {
 .metadata-provider {
   display: inline-block;
   overflow-wrap: anywhere;
-}
-
-/* ==========================================================================
-   Visual Card
-   ========================================================================== */
-
-.visual-card {
-  margin: 1.5rem 0;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  overflow: hidden;
-  background: var(--surface);
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  box-shadow: var(--shadow-sm);
-  box-sizing: border-box;
-}
-
-.visual-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 18px;
-  background: var(--surface-hover);
-  border-bottom: 1px solid var(--border-light);
-  font-weight: 600;
-  font-size: 13px;
-  color: var(--text);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.visual-card-body {
-  padding: var(--spacing-lg);
-  min-height: 100px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-}
-
-.visual-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-secondary);
-  text-align: center;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.placeholder-icon {
-  font-size: 32px;
-}
-
-.visual-placeholder p {
-  font-size: 15px;
-  font-weight: 500;
-  margin: 0;
-  color: var(--text);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.visual-placeholder span {
-  font-size: 13px;
-  color: var(--text-tertiary);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  line-height: 1.55;
-}
-
-.visual-card-footer {
-  padding: 12px 18px;
-  border-top: 1px solid var(--border-light);
-  font-size: 12.5px;
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 /* ==========================================================================
@@ -1512,9 +1491,9 @@ body {
   background: transparent;
   color: var(--text);
   caret-color: var(--text);
-  font-size: 16.5px;
+  font-size: 16px;
   font-family: var(--font-sans);
-  line-height: 1.55;
+  line-height: 1.6;
   padding: 12px 14px;
   min-height: 46px;
   max-height: 220px;
@@ -1581,13 +1560,8 @@ body {
   color: #ffffff;
 }
 
-.stop-button:hover {
-  background: var(--danger-hover);
-}
-
-.stop-button:active {
-  transform: scale(0.96);
-}
+.stop-button:hover { background: var(--danger-hover); }
+.stop-button:active { transform: scale(0.96); }
 
 .composer-hint {
   text-align: center;
@@ -1608,14 +1582,10 @@ body {
   contain-intrinsic-size: auto 500px;
 }
 
-.messages {
-  scroll-behavior: auto;
-}
+.messages { scroll-behavior: auto; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .messages {
-    scroll-behavior: smooth;
-  }
+  .messages { scroll-behavior: smooth; }
 }
 
 /* ==========================================================================
@@ -1672,17 +1642,9 @@ body {
     border-radius: 9px;
   }
 
-  .header-subtitle {
-    display: none;
-  }
-
-  .header-status {
-    display: none;
-  }
-
-  .new-chat-label {
-    display: none;
-  }
+  .header-subtitle { display: none; }
+  .header-status { display: none; }
+  .new-chat-label { display: none; }
 
   .new-chat-button {
     padding: 0;
@@ -1696,11 +1658,15 @@ body {
     min-height: 42px;
   }
 
-  .empty-state {
-    padding: 28px 0 16px;
+  .empty-state { padding: 28px 0 16px; }
+
+  .empty-state-title {
+    font-size: clamp(20px, 5.2vw, 24px);
+    margin-bottom: 12px;
   }
 
   .empty-state-description {
+    font-size: clamp(14.5px, 3.6vw, 15.5px);
     margin-bottom: 26px;
   }
 
@@ -1720,72 +1686,61 @@ body {
     border-radius: 10px;
   }
 
-  /* ChatGPT-comfortable mobile reading — body text does NOT shrink */
   .markdown-content {
-    font-size: 16.5px;
+    font-size: 16px;
     line-height: 1.7;
   }
 
   .message.assistant .message-content {
-    font-size: 16.5px;
+    font-size: 16px;
     line-height: 1.7;
     max-width: 100%;
     padding-left: 14px;
   }
 
   .plain-message {
-    font-size: 16.5px;
+    font-size: 16px;
     line-height: 1.7;
   }
 
-  .message.user {
-    max-width: 90%;
-  }
+  .message.user { max-width: 90%; }
 
   .message.user .message-content {
     padding: 11px 15px;
-    font-size: 16px;
-    line-height: 1.6;
+    font-size: 15.5px;
+    line-height: 1.65;
     border-radius: 18px;
     border-bottom-right-radius: 6px;
   }
 
-  /* Mobile heading scale — clear hierarchy, no overflow */
-  .markdown-content h1 {
-    font-size: 1.55rem;
-    margin: 1.7rem 0 0.8rem;
-  }
-  .markdown-content h2 {
-    font-size: 1.32rem;
-    margin: 1.55rem 0 0.7rem;
-  }
-  .markdown-content h3 {
-    font-size: 1.15rem;
-    margin: 1.4rem 0 0.55rem;
-  }
-  .markdown-content h4 {
-    font-size: 1.02rem;
-    margin: 1.2rem 0 0.5rem;
-  }
+  .markdown-content h1 { font-size: 1.55rem; margin: 1.75rem 0 0.85rem; }
+  .markdown-content h2 { font-size: 1.32rem; margin: 1.6rem 0 0.75rem; }
+  .markdown-content h3 { font-size: 1.15rem; margin: 1.45rem 0 0.6rem; }
+  .markdown-content h4 { font-size: 1.02rem; margin: 1.25rem 0 0.55rem; }
 
-  .markdown-content p {
-    margin-bottom: 1.1rem;
-  }
+  .markdown-content p { margin-bottom: 1.15rem; }
 
   .markdown-content ul,
   .markdown-content ol {
     padding-left: 1.35rem;
-    margin-bottom: 1.1rem;
+    margin-bottom: 1.15rem;
   }
 
-  .markdown-content li {
-    margin: 0.42rem 0;
-  }
+  .markdown-content li { margin: 0.45rem 0; }
 
   .markdown-content blockquote {
     padding: 8px 14px;
-    font-size: 16.5px;
+    font-size: 16px;
   }
+
+  /* Flat mobile table transformation */
+  .responsive-table .table-wrapper { display: none; }
+  .responsive-table .mobile-table { display: flex; }
+  .responsive-table { margin: 1.35rem 0; }
+
+  .mobile-table-row { padding: 16px 0; gap: 12px; }
+  .mobile-table-label { font-size: 11px; letter-spacing: 0.08em; }
+  .mobile-table-value { font-size: 16px; line-height: 1.7; }
 
   .composer {
     padding-top: 8px;
@@ -1807,8 +1762,8 @@ body {
   }
 
   .composer textarea {
-    font-size: 16.5px;
-    line-height: 1.55;
+    font-size: 15.5px;
+    line-height: 1.6;
     min-height: 44px;
     max-height: 180px;
     padding: 10px 12px;
@@ -1822,31 +1777,11 @@ body {
     border-radius: 14px;
   }
 
-  .message-actions {
-    opacity: 1;
-  }
+  .message-actions { opacity: 1; }
 
-  .markdown-content table {
-    font-size: 14px;
-  }
-
-  .markdown-content th,
-  .markdown-content td {
-    padding: 10px 12px;
-  }
-
-  .code-block pre {
-    font-size: 14px;
-    padding: 13px !important;
-  }
-
-  .code-block {
-    border-radius: 14px;
-  }
-
-  .table-wrapper {
-    border-radius: 14px;
-  }
+  .code-block pre { font-size: 14px; padding: 13px !important; }
+  .code-block { border-radius: 14px; }
+  .table-wrapper { border-radius: 14px; }
 
   .scroll-button {
     bottom: calc(126px + var(--safe-bottom));
@@ -1867,48 +1802,28 @@ body {
     padding-inline: var(--page-inline-padding-mobile);
   }
 
-  .message.user {
-    max-width: 92%;
-  }
+  .message.user { max-width: 92%; }
 
-  .markdown-content {
-    font-size: 16.5px;
-    line-height: 1.68;
-  }
+  .markdown-content { font-size: 16px; line-height: 1.68; }
+  .message.assistant .message-content { font-size: 16px; }
 
-  .message.assistant .message-content {
-    font-size: 16.5px;
-  }
-
-  .markdown-content h1 {
-    font-size: 1.48rem;
-  }
-  .markdown-content h2 {
-    font-size: 1.28rem;
-  }
-  .markdown-content h3 {
-    font-size: 1.13rem;
-  }
-  .markdown-content h4 {
-    font-size: 1.02rem;
-  }
+  .markdown-content h1 { font-size: 1.48rem; }
+  .markdown-content h2 { font-size: 1.28rem; }
+  .markdown-content h3 { font-size: 1.13rem; }
+  .markdown-content h4 { font-size: 1.02rem; }
 
   .markdown-content ul,
-  .markdown-content ol {
-    padding-left: 1.25rem;
-  }
+  .markdown-content ol { padding-left: 1.25rem; }
 
-  .composer textarea {
-    font-size: 16.5px;
-  }
+  .composer textarea { font-size: 15.5px; }
+  .composer-hint { display: none; }
 
-  .composer-hint {
-    display: none;
-  }
+  .mobile-table-row { padding: 15px 0; gap: 12px; }
+  .mobile-table-value { font-size: 16px; line-height: 1.68; }
 }
 
 /* ==========================================================================
-   Responsive — Very Small Mobile (320px)
+   Responsive — Very Small Mobile (320px-360px)
    ========================================================================== */
 
 @media (max-width: 360px) {
@@ -1919,58 +1834,28 @@ body {
     padding-inline: var(--page-inline-padding-tiny);
   }
 
-  .message.user {
-    max-width: 94%;
-  }
+  .message.user { max-width: 94%; }
 
-  .message.assistant .message-content {
-    padding-left: 12px;
-  }
+  .message.assistant .message-content { padding-left: 12px; }
 
-  .markdown-content {
-    font-size: 16px;
-    line-height: 1.65;
-  }
+  .markdown-content { font-size: 16px; line-height: 1.65; }
+  .message.assistant .message-content { font-size: 16px; }
+  .plain-message { font-size: 16px; }
 
-  .message.assistant .message-content {
-    font-size: 16px;
-  }
-
-  .plain-message {
-    font-size: 16px;
-  }
-
-  .markdown-content h1 {
-    font-size: 1.4rem;
-  }
-  .markdown-content h2 {
-    font-size: 1.22rem;
-  }
-  .markdown-content h3 {
-    font-size: 1.1rem;
-  }
-  .markdown-content h4 {
-    font-size: 1rem;
-  }
+  .markdown-content h1 { font-size: 1.4rem; }
+  .markdown-content h2 { font-size: 1.22rem; }
+  .markdown-content h3 { font-size: 1.1rem; }
+  .markdown-content h4 { font-size: 1rem; }
 
   .markdown-content ul,
-  .markdown-content ol {
-    padding-left: 1.15rem;
-  }
+  .markdown-content ol { padding-left: 1.15rem; }
 
-  .markdown-content blockquote {
-    padding: 6px 12px;
-    font-size: 16px;
-  }
+  .markdown-content blockquote { padding: 6px 12px; font-size: 16px; }
 
-  .composer-box {
-    gap: 5px;
-    padding: 4px;
-    border-radius: 20px;
-  }
+  .composer-box { gap: 5px; padding: 4px; border-radius: 20px; }
 
   .composer textarea {
-    font-size: 16px;
+    font-size: 15.5px;
     min-height: 42px;
     padding: 9px 10px;
   }
@@ -1983,19 +1868,11 @@ body {
     border-radius: 12px;
   }
 
-  .code-block pre {
-    padding: 11px !important;
-    font-size: 13.5px;
-  }
+  .code-block pre { padding: 11px !important; font-size: 13.5px; }
 
-  .markdown-content table {
-    font-size: 13.5px;
-  }
-
-  .markdown-content th,
-  .markdown-content td {
-    padding: 9px 11px;
-  }
+  .mobile-table-row { padding: 14px 0; gap: 11px; }
+  .mobile-table-label { font-size: 10.5px; }
+  .mobile-table-value { font-size: 16px; line-height: 1.65; }
 }
 
 /* ==========================================================================
@@ -2038,4 +1915,62 @@ a:focus-visible {
   outline: 2px solid var(--accent-text);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* ==========================================================================
+   New Chat inline button — sits to the left of the textarea, mirrors Send
+   ========================================================================== */
+
+.new-chat-inline-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 46px;
+  min-width: 46px;
+  padding: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease,
+    border-color 0.15s ease, transform 0.1s ease;
+  pointer-events: auto;
+  font-family: inherit;
+  flex-shrink: 0;
+}
+
+.new-chat-inline-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+.new-chat-inline-button:active {
+  transform: scale(0.96);
+}
+
+.new-chat-inline-button:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
+
+/* Mobile adjustments — match the send/stop button sizes at each breakpoint */
+
+@media (max-width: 767px) {
+  .new-chat-inline-button {
+    min-height: 44px;
+    min-width: 44px;
+    border-radius: 14px;
+  }
+}
+
+@media (max-width: 360px) {
+  .new-chat-inline-button {
+    min-height: 40px;
+    min-width: 40px;
+    border-radius: 12px;
+  }
 }
