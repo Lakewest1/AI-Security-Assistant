@@ -1,7 +1,7 @@
 /**
  * AI Security Assistant - Reliability Rebuild
  * 
- * Core changes:
+ * New changes:
  * 1. New FallbackEngine for sequential provider attempts
  * 2. ProviderErrorClassifier for isolated error handling
  * 3. CircuitBreakerPool for optimization (not primary failure mechanism)
@@ -179,7 +179,7 @@ const fallbackEngine = new FallbackEngine({
 });
 
 // ==========================================
-// MIDDLEWARE
+// MIDDLEWARE For security
 // ==========================================
 
 app.set('trust proxy', 1);

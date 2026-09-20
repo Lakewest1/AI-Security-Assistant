@@ -20,6 +20,7 @@ import {
   ClipboardCheck,
   LifeBuoy,
   ShieldCheck,
+  Wrench,
 } from "lucide-react";
 import "./App.css";
 
@@ -36,11 +37,72 @@ const THINKING_WORDS = [
   "Structuring a clear response...",
 ];
 
+const AGENT_THINKING_WORDS = [
+  "Investigating with security tools...",
+  "Querying threat intelligence...",
+  "Correlating indicators...",
+  "Consulting VirusTotal...",
+  "Analyzing reputation data...",
+  "Preparing investigation summary...",
+];
+
 const INITIAL_GREETING =
   "Hello. I'm your AI Security Assistant. I can help with cybersecurity, cloud and application security, identity, incident response, digital privacy, and everyday safety. What would you like to explore?";
 
 const CLEARED_GREETING =
   "Chat cleared. Ready for a new security or safety question.";
+
+/* --------------------------------------------------------------------------
+   Detect whether a request should route to the agent endpoint.
+   Returns true for explicit investigation language or bare IPs/domains.
+   -------------------------------------------------------------------------- */
+
+const IPV4_REGEX = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+const IPV6_REGEX = /\b(?:[a-f0-9]{1,4}:){2,}[a-f0-9]{1,4}\b/i;
+const DOMAIN_REGEX = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/i;
+
+const AGENT_TRIGGER_WORDS = [
+  "investigate",
+  "analyze this ip",
+  "analyze this domain",
+  "analyze this host",
+  "look up",
+  "lookup",
+  "threat intel",
+  "threat intelligence",
+  "reputation",
+  "virustotal",
+  "whois",
+  "shodan",
+  "abuseipdb",
+  "indicator of compromise",
+  "ioc",
+  "c2 server",
+  "command and control",
+];
+
+function shouldUseAgent(text) {
+  if (!text || typeof text !== "string") return false;
+  const lower = text.toLowerCase();
+
+  // Explicit trigger words
+  if (AGENT_TRIGGER_WORDS.some((w) => lower.includes(w))) return true;
+
+  // Bare IP address (v4 or v6) anywhere in the message
+  if (IPV4_REGEX.test(text)) return true;
+  if (IPV6_REGEX.test(text)) return true;
+
+  // Bare domain (must look like a real hostname, avoid matching "config.json" alone)
+  if (DOMAIN_REGEX.test(text)) {
+    const match = text.match(DOMAIN_REGEX);
+    if (match && match[0].includes(".") && !match[0].endsWith(".json")) {
+      // Only treat as agent trigger if the message is short and clearly about the domain
+      if (text.trim().split(/\s+/).length <= 8) return true;
+    }
+  }
+
+  return false;
+}
 
 /* --------------------------------------------------------------------------
    Markdown normalization — strips artifact fragments outside code blocks.
@@ -202,9 +264,8 @@ const SUGGESTION_CARDS = [
   {
     icon: Search,
     title: "Investigate a threat",
-    description: "Analyze suspicious activity or an incident",
-    prompt:
-      "Help me investigate a suspicious security incident. What information do you need and how should I approach the analysis?",
+    description: "Analyze suspicious activity, an IP, or a domain",
+    prompt: "Investigate this IP: 185.220.101.34",
   },
   {
     icon: Lock,
@@ -252,6 +313,130 @@ function nodeToText(node) {
   }
   return "";
 }
+
+/* --------------------------------------------------------------------------
+   Investigation-report semantic styling.
+
+   The agent's Markdown reports use plain-text conventions for provider
+   status ("✓ VirusTotal — success" / "⚠ AbuseIPDB — timeout") and
+   confidence/risk levels ("Confidence: Moderate", bare "Moderate" under a
+   "### Confidence" heading). Rendered as plain paragraph/list text these
+   are hard to scan. The renderers below recognize those exact patterns —
+   and only those — and render them as colored status pills instead;
+   anything that doesn't match falls through to ordinary Markdown so
+   normal prose is never affected.
+   -------------------------------------------------------------------------- */
+
+const LEVEL_TONE = {
+  low: "tone-good",
+  none: "tone-good",
+  moderate: "tone-warn",
+  medium: "tone-warn",
+  partial: "tone-warn",
+  high: "tone-bad",
+  elevated: "tone-bad",
+  critical: "tone-bad",
+  severe: "tone-bad",
+  unknown: "tone-neutral",
+};
+
+const SOURCE_STATUS_TONE = {
+  success: "tone-good",
+  completed: "tone-good",
+  timeout: "tone-warn",
+  rate_limited: "tone-warn",
+  "rate limited": "tone-warn",
+  partial: "tone-warn",
+  unauthorized: "tone-bad",
+  unavailable: "tone-bad",
+  error: "tone-bad",
+  skipped: "tone-neutral",
+};
+
+// "✓ VirusTotal — success" / "⚠ AbuseIPDB — timeout" / "- ✓ IPinfo — success"
+const SOURCE_LINE_RE_ICON_FIRST = /^([✓⚠])\s*([A-Za-z0-9][\w .+-]*?)\s*[—-]\s*([A-Za-z][\w ]*)$/;
+
+// "VirusTotal: ✓ Success" / "AbuseIPDB: ⚠ Timeout" (provider name leads)
+const SOURCE_LINE_RE_NAME_FIRST = /^([A-Za-z0-9][\w .+-]*?)\s*:\s*([✓⚠])\s*([A-Za-z][\w ]*)$/;
+
+// "Confidence: Moderate" / "External intelligence confidence: high"
+const CONFIDENCE_LINE_RE =
+  /^([A-Za-z][\w ]*?confidence)\s*:\s*(low|moderate|medium|high|elevated|critical|unknown|none)\s*$/i;
+
+// A bare level word on its own line (e.g. the line right after "### Confidence")
+const BARE_LEVEL_RE = /^(low|moderate|medium|high|elevated|critical|unknown|none|partial)$/i;
+
+function StatusPill({ tone, children }) {
+  return <span className={`status-pill ${tone}`}>{children}</span>;
+}
+
+function renderSourceLine(text) {
+  const iconFirst = text.match(SOURCE_LINE_RE_ICON_FIRST);
+  if (iconFirst) {
+    const [, icon, provider, statusWord] = iconFirst;
+    const key = statusWord.trim().toLowerCase();
+    const tone = SOURCE_STATUS_TONE[key] || (icon === "✓" ? "tone-good" : "tone-bad");
+    return (
+      <span className="report-line">
+        <StatusPill tone={tone}>
+          {icon} {statusWord.trim()}
+        </StatusPill>
+        <span className="report-line-label">{provider.trim()}</span>
+      </span>
+    );
+  }
+
+  const nameFirst = text.match(SOURCE_LINE_RE_NAME_FIRST);
+  if (nameFirst) {
+    const [, provider, icon, statusWord] = nameFirst;
+    const key = statusWord.trim().toLowerCase();
+    const tone = SOURCE_STATUS_TONE[key] || (icon === "✓" ? "tone-good" : "tone-bad");
+    return (
+      <span className="report-line">
+        <span className="report-line-label">{provider.trim()}</span>
+        <StatusPill tone={tone}>
+          {icon} {statusWord.trim()}
+        </StatusPill>
+      </span>
+    );
+  }
+
+  return null;
+}
+
+function renderConfidenceLine(text) {
+  const m = text.match(CONFIDENCE_LINE_RE);
+  if (!m) return null;
+  const [, label, level] = m;
+  const tone = LEVEL_TONE[level.toLowerCase()] || "tone-neutral";
+  return (
+    <span className="report-line">
+      <span className="report-line-label">{label.trim()}</span>
+      <StatusPill tone={tone}>{level.trim()}</StatusPill>
+    </span>
+  );
+}
+
+function renderBareLevel(text) {
+  if (!BARE_LEVEL_RE.test(text)) return null;
+  const tone = LEVEL_TONE[text.toLowerCase()] || "tone-neutral";
+  return <StatusPill tone={tone}>{text}</StatusPill>;
+}
+
+const InvestigationListItem = memo(function InvestigationListItem({ children, ...props }) {
+  const text = nodeToText(children).trim();
+  const node = renderSourceLine(text) || renderConfidenceLine(text);
+  if (node) return <li className="li-report-line">{node}</li>;
+  return <li {...props}>{children}</li>;
+});
+
+const InvestigationParagraph = memo(function InvestigationParagraph({ children, ...props }) {
+  const text = nodeToText(children).trim();
+  const node =
+    renderSourceLine(text) || renderConfidenceLine(text) || renderBareLevel(text);
+  if (node) return <p className="p-report-line">{node}</p>;
+  return <p {...props}>{children}</p>;
+});
 
 /* --------------------------------------------------------------------------
    ResponsiveTable
@@ -425,6 +610,10 @@ const MessageItem = memo(function MessageItem({
       minute: "2-digit",
     });
 
+  const usedTools = Array.isArray(message.metadata?.toolsUsed)
+    ? message.metadata.toolsUsed
+    : [];
+
   return (
     <div
       className={`message ${isUser ? "user" : "assistant"} ${
@@ -439,6 +628,12 @@ const MessageItem = memo(function MessageItem({
         {message.timestamp && (
           <span className="message-time">{formatTime(message.timestamp)}</span>
         )}
+        {!isUser && usedTools.length > 0 && (
+          <span className="message-tool-badge" title={`Tools used: ${usedTools.join(", ")}`}>
+            <Wrench size={11} />
+            {usedTools.length} tool{usedTools.length > 1 ? "s" : ""}
+          </span>
+        )}
       </div>
 
       <div className="message-content">
@@ -450,6 +645,8 @@ const MessageItem = memo(function MessageItem({
                 components={{
                   code: CodeBlock,
                   table: ResponsiveTable,
+                  li: InvestigationListItem,
+                  p: InvestigationParagraph,
                   blockquote({ children }) {
                     return <blockquote>{children}</blockquote>;
                   },
@@ -464,6 +661,10 @@ const MessageItem = memo(function MessageItem({
                 <span className="metadata-provider">
                   Generated in{" "}
                   {(message.metadata.responseTimeMs / 1000).toFixed(1)}s
+                  {message.metadata.provider
+                    ? ` · ${message.metadata.provider}`
+                    : ""}
+                  {message.metadata.toolMode ? " · tool-assisted" : ""}
                 </span>
               </div>
             ) : null}
@@ -522,12 +723,15 @@ function App() {
   const [messages, setMessages] = useState(() => [buildGreetingMessage()]);
   const [input, setInput] = useState("");
   const [isRequesting, setIsRequesting] = useState(false);
+  const [isAgentMode, setIsAgentMode] = useState(false);
   const [thinkingWord, setThinkingWord] = useState(THINKING_WORDS[0]);
   const [darkMode, setDarkMode] = useState(() => {
+    // Default to light — a clean, bright surface is the intended baseline
+    // look for this app. Once the person picks a theme explicitly it is
+    // remembered; until then we no longer fall back to the OS preference,
+    // since that could silently start someone in dark mode.
     const saved = localStorage.getItem("darkMode");
-    return saved
-      ? JSON.parse(saved)
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return saved ? JSON.parse(saved) : false;
   });
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [intents, setIntents] = useState([]);
@@ -549,16 +753,14 @@ function App() {
 
   useEffect(() => {
     if (!isRequesting) return;
+    const pool = isAgentMode ? AGENT_THINKING_WORDS : THINKING_WORDS;
     const interval = setInterval(() => {
       setThinkingWord(
-        (prev) =>
-          THINKING_WORDS[
-            (THINKING_WORDS.indexOf(prev) + 1) % THINKING_WORDS.length
-          ]
+        (prev) => pool[(pool.indexOf(prev) + 1) % pool.length]
       );
     }, 2500);
     return () => clearInterval(interval);
-  }, [isRequesting]);
+  }, [isRequesting, isAgentMode]);
 
   useEffect(() => {
     localStorage.setItem("darkMode", JSON.stringify(darkMode));
@@ -635,18 +837,27 @@ function App() {
     computeScrollMetrics();
   }, [computeScrollMetrics]);
 
-  const runChatRequest = useCallback(
-    async (apiMessages) => {
+  /* ------------------------------------------------------------------------
+     Unified request runner — decides agent vs chat based on message content.
+     ------------------------------------------------------------------------ */
+
+  const runRequest = useCallback(
+    async (apiMessages, { useAgent }) => {
       if (requestAbortRef.current) requestAbortRef.current.abort();
       const controller = new AbortController();
       requestAbortRef.current = controller;
 
       setIsRequesting(true);
-      setThinkingWord(THINKING_WORDS[0]);
+      setIsAgentMode(useAgent);
+      setThinkingWord(
+        useAgent ? AGENT_THINKING_WORDS[0] : THINKING_WORDS[0]
+      );
       scrollStateRef.current.isNearBottom = true;
 
+      const endpoint = useAgent ? "/api/agent" : "/api/chat";
+
       try {
-        const response = await fetch(`${API_URL}/api/chat`, {
+        const response = await fetch(`${API_URL}${endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ messages: apiMessages, conversationId }),
@@ -706,6 +917,7 @@ function App() {
           requestAbortRef.current = null;
         }
         setIsRequesting(false);
+        setIsAgentMode(false);
       }
     },
     [conversationId, scrollToBottom]
@@ -730,6 +942,8 @@ function App() {
         ]);
         return;
       }
+
+      const useAgent = shouldUseAgent(trimmedInput);
 
       const userMessage = {
         id: "user-" + Date.now(),
@@ -756,9 +970,9 @@ function App() {
           content: c.slice(0, 4000),
         }));
 
-      await runChatRequest(apiMessages);
+      await runRequest(apiMessages, { useAgent });
     },
-    [input, isRequesting, messages, runChatRequest]
+    [input, isRequesting, messages, runRequest]
   );
 
   const handleStop = useCallback(() => {
@@ -767,6 +981,7 @@ function App() {
       requestAbortRef.current = null;
     }
     setIsRequesting(false);
+    setIsAgentMode(false);
   }, []);
 
   const handleKeyDown = useCallback(
@@ -783,6 +998,7 @@ function App() {
     if (requestAbortRef.current) requestAbortRef.current.abort();
     requestAbortRef.current = null;
     setIsRequesting(false);
+    setIsAgentMode(false);
 
     if (conversationId) {
       try {
@@ -822,6 +1038,7 @@ function App() {
     if (requestAbortRef.current) requestAbortRef.current.abort();
     requestAbortRef.current = null;
     setIsRequesting(false);
+    setIsAgentMode(false);
 
     const lastUserIndex = [...messages]
       .reverse()
@@ -848,8 +1065,9 @@ function App() {
         content: c.slice(0, 4000),
       }));
 
-    runChatRequest(apiMessages);
-  }, [messages, runChatRequest]);
+    const useAgent = shouldUseAgent(lastUserMessage.fullContent || "");
+    runRequest(apiMessages, { useAgent });
+  }, [messages, runRequest]);
 
   return (
     <div
@@ -973,6 +1191,12 @@ function App() {
                   aria-hidden="true"
                 />
                 <span className="message-author">AI</span>
+                {isAgentMode && (
+                  <span className="message-tool-badge">
+                    <Wrench size={11} />
+                    investigation
+                  </span>
+                )}
               </div>
               <div className="message-content">
                 <div className="thinking-indicator">
