@@ -315,130 +315,6 @@ function nodeToText(node) {
 }
 
 /* --------------------------------------------------------------------------
-   Investigation-report semantic styling.
-
-   The agent's Markdown reports use plain-text conventions for provider
-   status ("✓ VirusTotal — success" / "⚠ AbuseIPDB — timeout") and
-   confidence/risk levels ("Confidence: Moderate", bare "Moderate" under a
-   "### Confidence" heading). Rendered as plain paragraph/list text these
-   are hard to scan. The renderers below recognize those exact patterns —
-   and only those — and render them as colored status pills instead;
-   anything that doesn't match falls through to ordinary Markdown so
-   normal prose is never affected.
-   -------------------------------------------------------------------------- */
-
-const LEVEL_TONE = {
-  low: "tone-good",
-  none: "tone-good",
-  moderate: "tone-warn",
-  medium: "tone-warn",
-  partial: "tone-warn",
-  high: "tone-bad",
-  elevated: "tone-bad",
-  critical: "tone-bad",
-  severe: "tone-bad",
-  unknown: "tone-neutral",
-};
-
-const SOURCE_STATUS_TONE = {
-  success: "tone-good",
-  completed: "tone-good",
-  timeout: "tone-warn",
-  rate_limited: "tone-warn",
-  "rate limited": "tone-warn",
-  partial: "tone-warn",
-  unauthorized: "tone-bad",
-  unavailable: "tone-bad",
-  error: "tone-bad",
-  skipped: "tone-neutral",
-};
-
-// "✓ VirusTotal — success" / "⚠ AbuseIPDB — timeout" / "- ✓ IPinfo — success"
-const SOURCE_LINE_RE_ICON_FIRST = /^([✓⚠])\s*([A-Za-z0-9][\w .+-]*?)\s*[—-]\s*([A-Za-z][\w ]*)$/;
-
-// "VirusTotal: ✓ Success" / "AbuseIPDB: ⚠ Timeout" (provider name leads)
-const SOURCE_LINE_RE_NAME_FIRST = /^([A-Za-z0-9][\w .+-]*?)\s*:\s*([✓⚠])\s*([A-Za-z][\w ]*)$/;
-
-// "Confidence: Moderate" / "External intelligence confidence: high"
-const CONFIDENCE_LINE_RE =
-  /^([A-Za-z][\w ]*?confidence)\s*:\s*(low|moderate|medium|high|elevated|critical|unknown|none)\s*$/i;
-
-// A bare level word on its own line (e.g. the line right after "### Confidence")
-const BARE_LEVEL_RE = /^(low|moderate|medium|high|elevated|critical|unknown|none|partial)$/i;
-
-function StatusPill({ tone, children }) {
-  return <span className={`status-pill ${tone}`}>{children}</span>;
-}
-
-function renderSourceLine(text) {
-  const iconFirst = text.match(SOURCE_LINE_RE_ICON_FIRST);
-  if (iconFirst) {
-    const [, icon, provider, statusWord] = iconFirst;
-    const key = statusWord.trim().toLowerCase();
-    const tone = SOURCE_STATUS_TONE[key] || (icon === "✓" ? "tone-good" : "tone-bad");
-    return (
-      <span className="report-line">
-        <StatusPill tone={tone}>
-          {icon} {statusWord.trim()}
-        </StatusPill>
-        <span className="report-line-label">{provider.trim()}</span>
-      </span>
-    );
-  }
-
-  const nameFirst = text.match(SOURCE_LINE_RE_NAME_FIRST);
-  if (nameFirst) {
-    const [, provider, icon, statusWord] = nameFirst;
-    const key = statusWord.trim().toLowerCase();
-    const tone = SOURCE_STATUS_TONE[key] || (icon === "✓" ? "tone-good" : "tone-bad");
-    return (
-      <span className="report-line">
-        <span className="report-line-label">{provider.trim()}</span>
-        <StatusPill tone={tone}>
-          {icon} {statusWord.trim()}
-        </StatusPill>
-      </span>
-    );
-  }
-
-  return null;
-}
-
-function renderConfidenceLine(text) {
-  const m = text.match(CONFIDENCE_LINE_RE);
-  if (!m) return null;
-  const [, label, level] = m;
-  const tone = LEVEL_TONE[level.toLowerCase()] || "tone-neutral";
-  return (
-    <span className="report-line">
-      <span className="report-line-label">{label.trim()}</span>
-      <StatusPill tone={tone}>{level.trim()}</StatusPill>
-    </span>
-  );
-}
-
-function renderBareLevel(text) {
-  if (!BARE_LEVEL_RE.test(text)) return null;
-  const tone = LEVEL_TONE[text.toLowerCase()] || "tone-neutral";
-  return <StatusPill tone={tone}>{text}</StatusPill>;
-}
-
-const InvestigationListItem = memo(function InvestigationListItem({ children, ...props }) {
-  const text = nodeToText(children).trim();
-  const node = renderSourceLine(text) || renderConfidenceLine(text);
-  if (node) return <li className="li-report-line">{node}</li>;
-  return <li {...props}>{children}</li>;
-});
-
-const InvestigationParagraph = memo(function InvestigationParagraph({ children, ...props }) {
-  const text = nodeToText(children).trim();
-  const node =
-    renderSourceLine(text) || renderConfidenceLine(text) || renderBareLevel(text);
-  if (node) return <p className="p-report-line">{node}</p>;
-  return <p {...props}>{children}</p>;
-});
-
-/* --------------------------------------------------------------------------
    ResponsiveTable
    Desktop: normal <table>.
    Mobile:  flat stacked label/value rows — no horizontal scroll needed.
@@ -645,8 +521,6 @@ const MessageItem = memo(function MessageItem({
                 components={{
                   code: CodeBlock,
                   table: ResponsiveTable,
-                  li: InvestigationListItem,
-                  p: InvestigationParagraph,
                   blockquote({ children }) {
                     return <blockquote>{children}</blockquote>;
                   },
@@ -726,12 +600,10 @@ function App() {
   const [isAgentMode, setIsAgentMode] = useState(false);
   const [thinkingWord, setThinkingWord] = useState(THINKING_WORDS[0]);
   const [darkMode, setDarkMode] = useState(() => {
-    // Default to light — a clean, bright surface is the intended baseline
-    // look for this app. Once the person picks a theme explicitly it is
-    // remembered; until then we no longer fall back to the OS preference,
-    // since that could silently start someone in dark mode.
     const saved = localStorage.getItem("darkMode");
-    return saved ? JSON.parse(saved) : false;
+    return saved
+      ? JSON.parse(saved)
+      : window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [intents, setIntents] = useState([]);

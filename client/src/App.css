@@ -2,7 +2,7 @@
    Lakewest AI Security Assistant — Production CSS
    Premium conversational AI for security & safety
    TYPOGRAPHY PRIORITY: ChatGPT-comfortable reading on all devices
-   Clean, light-first surface · Animated blue brand title
+   Subtle stripe-gradient atmosphere · Animated blue brand title
    16px-17px body text · 1.7 line height · Generous spacing
    Responsive tables: desktop table / mobile flat stacked rows
    ========================================================================== */
@@ -14,7 +14,7 @@
 }
 
 /* ==========================================================================
-   Design Tokens — Light Mode (default)
+   Design Tokens — Light Mode
    ========================================================================== */
 
 :root {
@@ -41,15 +41,14 @@
   --page-inline-padding-mobile: 14px;
   --page-inline-padding-tiny: 12px;
 
-  /* Clean, near-white surface — flat like a ChatGPT-style workspace
-     rather than a tinted graphic background. */
-  --bg: #ffffff;
+  --bg: #f7f8fa;
   --surface: #ffffff;
-  --surface-hover: #f6f7f9;
+  --surface-hover: #f4f5f8;
   --surface-elevated: #ffffff;
-  --border: #e5e7eb;
+
+  --border: #e2e4ea;
   --border-light: #eef0f3;
-  --border-hover: #d1d5db;
+  --border-hover: #cdd2dc;
 
   --text: #17181c;
   --text-secondary: #4e535c;
@@ -66,9 +65,6 @@
   --danger-hover: #a12525;
   --danger-light: #fdf2f2;
   --success: #2f855a;
-  --warning: #92610a;
-  --warning-light: #fdf6e8;
-  --neutral-chip: #4e535c;
 
   --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -99,10 +95,12 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* Kept very faint — a single soft highlight near the top of the page,
-     not a repeating pattern. This is what keeps the surface reading as
-     "clean and light" rather than tinted. */
-  --top-glow: rgba(37, 99, 235, 0.035);
+  --gradient-blue: rgba(37, 99, 235, 0.045);
+  --gradient-violet: rgba(99, 102, 241, 0.035);
+  --gradient-cyan: rgba(14, 165, 233, 0.025);
+
+  --stripe-tint: rgba(37, 99, 235, 0.020);
+  --stripe-tint-soft: rgba(37, 99, 235, 0.010);
 
   --brand-1: #1d4ed8;
   --brand-2: #2563eb;
@@ -113,7 +111,7 @@
 }
 
 /* ==========================================================================
-   Design Tokens — Dark Mode (opt-in via the theme toggle)
+   Design Tokens — Dark Mode
    ========================================================================== */
 
 .dark {
@@ -135,6 +133,7 @@
   --surface: #181b21;
   --surface-hover: #1f232b;
   --surface-elevated: #1e222a;
+
   --border: #2a2f39;
   --border-light: #232830;
   --border-hover: #3c4350;
@@ -151,9 +150,6 @@
   --danger-hover: #c94a4a;
   --danger-light: #401a1a;
   --success: #4ade80;
-  --warning: #f0c14b;
-  --warning-light: #3a2e12;
-  --neutral-chip: #b0b7c2;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -162,6 +158,7 @@
   --gradient-blue: rgba(59, 130, 246, 0.055);
   --gradient-violet: rgba(129, 140, 248, 0.045);
   --gradient-cyan: rgba(14, 165, 233, 0.035);
+
   --stripe-tint: rgba(96, 165, 250, 0.028);
   --stripe-tint-soft: rgba(96, 165, 250, 0.014);
 
@@ -214,11 +211,6 @@ body {
 
 /* ==========================================================================
    App Shell
-
-   Light mode is intentionally close to flat white — one soft glow near
-   the top, no repeating stripe pattern — so the default surface reads as
-   clean and bright. Dark mode keeps its richer atmosphere, since it's an
-   explicit opt-in via the theme toggle rather than the default.
    ========================================================================== */
 
 .app {
@@ -231,13 +223,6 @@ body {
   min-height: 0;
   overflow: hidden;
   position: relative;
-  background:
-    radial-gradient(circle at 50% -10%, var(--top-glow), transparent 46%),
-    var(--bg);
-}
-
-.dark.app,
-.app.dark {
   background:
     repeating-linear-gradient(
       135deg,
@@ -1027,73 +1012,6 @@ body {
 .markdown-content em {
   font-style: italic;
   color: var(--text);
-}
-
-/* ==========================================================================
-   Investigation report semantics — status pills & confidence/risk chips
-
-   Rendered only for lines that match the report's own status/confidence
-   conventions (see InvestigationListItem/InvestigationParagraph in
-   App.jsx). Every other line renders as ordinary Markdown, unaffected.
-   ========================================================================== */
-
-.li-report-line,
-.p-report-line {
-  list-style: none;
-  margin-left: -1.6rem;
-  padding-left: 1.6rem;
-}
-
-.report-line {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  line-height: 1.5;
-}
-
-.report-line-label {
-  font-weight: 600;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 11px;
-  border-radius: var(--radius-full);
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  text-transform: capitalize;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.status-pill.tone-good {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  color: var(--success);
-  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
-}
-
-.status-pill.tone-warn {
-  background: color-mix(in srgb, var(--warning) 14%, var(--warning-light));
-  color: var(--warning);
-  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
-}
-
-.status-pill.tone-bad {
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger);
-  border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
-}
-
-.status-pill.tone-neutral {
-  background: var(--surface-hover);
-  color: var(--neutral-chip);
-  border: 1px solid var(--border);
 }
 
 /* ==========================================================================
@@ -1917,6 +1835,7 @@ body {
   }
 
   .message.user { max-width: 94%; }
+
   .message.assistant .message-content { padding-left: 12px; }
 
   .markdown-content { font-size: 16px; line-height: 1.65; }
@@ -1982,7 +1901,11 @@ body {
   }
 
   .app {
-    background: var(--bg);
+    background:
+      radial-gradient(circle at 12% 0%, var(--gradient-blue), transparent 38%),
+      radial-gradient(circle at 88% 8%, var(--gradient-violet), transparent 40%),
+      radial-gradient(circle at 50% 100%, var(--gradient-cyan), transparent 44%),
+      var(--bg);
   }
 }
 
@@ -2035,6 +1958,7 @@ a:focus-visible {
 }
 
 /* Mobile adjustments — match the send/stop button sizes at each breakpoint */
+
 @media (max-width: 767px) {
   .new-chat-inline-button {
     min-height: 44px;
