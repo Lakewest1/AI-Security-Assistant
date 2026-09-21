@@ -10,27 +10,42 @@
  * Adds:
  *   POST /api/agent
  *
+ * Safe agent progress streaming:
+ *   POST /api/agent
+ *   {
+ *     "messages": [...],
+ *     "stream": true
+ *   }
+ *
+ * SSE lifecycle:
+ *
+ *   started
+ *   progress
+ *   progress
+ *   progress
+ *   metadata
+ *   token
+ *   token
+ *   token
+ *   ...
+ *   complete
+ *
+ * The stream exposes SAFE operational progress only.
+ * It never exposes hidden chain-of-thought or private model reasoning.
+ *
  * Agent provider chain:
  *   1. Claude (Anthropic) — preferred
  *   2. Groq               — fallback
  *
  * Agent tools are READ-ONLY.
  *
- * Phase additions:
- *   - Evidence-based reasoning
- *   - Structured output contract
- *   - SecurityAssessment post-processing
- *   - Required-tool enforcement
- *   - Provider fallback
- *   - Security intelligence integrations
- *
  * IMPORTANT:
- * Censys now uses the Censys Platform API:
+ * Censys uses the Censys Platform API:
  *
  *   CENSYS_API_TOKEN
  *   CENSYS_ORGANIZATION_ID
  *
- * Do NOT use the legacy:
+ * Do NOT use:
  *
  *   CENSYS_API_ID
  *   CENSYS_API_SECRET
@@ -50,17 +65,9 @@ const { v4: uuidv4 } = require('uuid');
 
 const FallbackEngine = require('./FallbackEngine');
 
-/*
- * IMPORTANT:
- * Your project exports CircuitBreakerPool from ./CircuitBreaker.
- *
- * DO NOT change this to:
- *
- *   require('./CircuitBreakerPool')
- *
- * unless you actually create that file.
- */
-const { CircuitBreakerPool } = require('./CircuitBreaker');
+const {
+  CircuitBreakerPool,
+} = require('./CircuitBreaker');
 
 /* =========================================================
    PROVIDERS — CHAT FALLBACK POOL
@@ -75,16 +82,35 @@ const {
   OpenRouterProvider,
 } = require('./providers-updated');
 
+
+/* =========================================================
+   PDF DOWNLOAD
+========================================================= */
+const {
+  generateSecurityReport,
+} = require("./reports/SecurityReportGenerator");
+
 /* =========================================================
    AGENT LAYER
 ========================================================= */
 
-const ToolRegistry = require('./agent/ToolRegistry');
-const ToolPolicy = require('./agent/ToolPolicy');
-const ToolValidator = require('./agent/ToolValidator');
-const AgentAuditLogger = require('./agent/AgentAuditLogger');
-const AgentLoop = require('./agent/AgentLoop');
-const AgentOrchestrator = require('./agent/AgentOrchestrator');
+const ToolRegistry =
+  require('./agent/ToolRegistry');
+
+const ToolPolicy =
+  require('./agent/ToolPolicy');
+
+const ToolValidator =
+  require('./agent/ToolValidator');
+
+const AgentAuditLogger =
+  require('./agent/AgentAuditLogger');
+
+const AgentLoop =
+  require('./agent/AgentLoop');
+
+const AgentOrchestrator =
+  require('./agent/AgentOrchestrator');
 
 /* =========================================================
    SECURITY INTELLIGENCE TOOLS
@@ -214,7 +240,9 @@ function getStructuredCompliance() {
 
     canonicalRate:
       total > 0
-        ? Number((canonical / total).toFixed(4))
+        ? Number(
+            (canonical / total).toFixed(4)
+          )
         : null,
 
     safetyNetRate:
@@ -237,8 +265,10 @@ const PROVIDERS = [
   new GroqProvider({
     name: 'Groq',
     apiKey: process.env.GROQ_API_KEY,
+
     url:
       'https://api.groq.com/openai/v1/chat/completions',
+
     type: 'openai-compatible',
 
     models: {
@@ -259,8 +289,10 @@ const PROVIDERS = [
   new DeepSeekProvider({
     name: 'DeepSeek',
     apiKey: process.env.DEEPSEEK_API_KEY,
+
     url:
       'https://api.deepseek.com/chat/completions',
+
     type: 'openai-compatible',
 
     models: {
@@ -281,8 +313,10 @@ const PROVIDERS = [
   new GeminiProvider({
     name: 'Gemini',
     apiKey: process.env.GEMINI_API_KEY,
+
     url:
       'https://generativelanguage.googleapis.com/v1beta/models',
+
     type: 'gemini',
 
     models: {
@@ -303,8 +337,10 @@ const PROVIDERS = [
   new OpenAIProvider({
     name: 'OpenAI',
     apiKey: process.env.OPENAI_API_KEY,
+
     url:
       'https://api.openai.com/v1/chat/completions',
+
     type: 'openai-compatible',
 
     models: {
@@ -325,8 +361,10 @@ const PROVIDERS = [
   new AnthropicProvider({
     name: 'Claude',
     apiKey: process.env.ANTHROPIC_API_KEY,
+
     url:
       'https://api.anthropic.com/v1/messages',
+
     type: 'anthropic',
 
     models: {
@@ -347,9 +385,12 @@ const PROVIDERS = [
   new OpenRouterProvider({
     name: 'OpenRouter',
     apiKey: process.env.OPENROUTER_API_KEY,
+
     url:
       'https://openrouter.ai/api/v1/chat/completions',
+
     type: 'openai-compatible',
+
     isFallbackOnly: true,
 
     models: {
@@ -369,20 +410,45 @@ const PROVIDERS = [
 ];
 
 const CONFIGURED_PROVIDERS =
-  PROVIDERS.filter((p) => p.isConfigured());
+  PROVIDERS.filter(
+    (provider) =>
+      provider.isConfigured()
+  );
 
-if (CONFIGURED_PROVIDERS.length === 0) {
+if (
+  CONFIGURED_PROVIDERS.length === 0
+) {
   console.error(
     '❌ ERROR: No AI providers configured!'
   );
 
-  console.error('Set at least one of:');
-  console.error('  - GROQ_API_KEY');
-  console.error('  - DEEPSEEK_API_KEY');
-  console.error('  - GEMINI_API_KEY');
-  console.error('  - OPENAI_API_KEY');
-  console.error('  - ANTHROPIC_API_KEY');
-  console.error('  - OPENROUTER_API_KEY');
+  console.error(
+    'Set at least one of:'
+  );
+
+  console.error(
+    '  - GROQ_API_KEY'
+  );
+
+  console.error(
+    '  - DEEPSEEK_API_KEY'
+  );
+
+  console.error(
+    '  - GEMINI_API_KEY'
+  );
+
+  console.error(
+    '  - OPENAI_API_KEY'
+  );
+
+  console.error(
+    '  - ANTHROPIC_API_KEY'
+  );
+
+  console.error(
+    '  - OPENROUTER_API_KEY'
+  );
 
   process.exit(1);
 }
@@ -390,7 +456,7 @@ if (CONFIGURED_PROVIDERS.length === 0) {
 console.log(
   '✅ Configured providers:',
   CONFIGURED_PROVIDERS
-    .map((p) => p.name)
+    .map((provider) => provider.name)
     .join(', ')
 );
 
@@ -399,24 +465,29 @@ console.log(
 ========================================================= */
 
 const PROVIDER_TIMEOUT_MS =
-  Number(process.env.PROVIDER_TIMEOUT_MS) ||
-  10000;
+  Number(
+    process.env.PROVIDER_TIMEOUT_MS
+  ) || 10000;
 
 const TOTAL_AI_REQUEST_TIMEOUT_MS =
-  Number(process.env.TOTAL_AI_REQUEST_TIMEOUT_MS) ||
-  55000;
+  Number(
+    process.env.TOTAL_AI_REQUEST_TIMEOUT_MS
+  ) || 55000;
 
 const FAST_MAX_TOKENS =
-  Number(process.env.FAST_MAX_TOKENS) ||
-  2000;
+  Number(
+    process.env.FAST_MAX_TOKENS
+  ) || 2000;
 
 const BALANCED_MAX_TOKENS =
-  Number(process.env.BALANCED_MAX_TOKENS) ||
-  4000;
+  Number(
+    process.env.BALANCED_MAX_TOKENS
+  ) || 4000;
 
 const POWERFUL_MAX_TOKENS =
-  Number(process.env.POWERFUL_MAX_TOKENS) ||
-  8000;
+  Number(
+    process.env.POWERFUL_MAX_TOKENS
+  ) || 8000;
 
 const MAX_HISTORY_MESSAGES = 20;
 
@@ -439,10 +510,14 @@ const circuitBreakerPool =
 
 const fallbackEngine =
   new FallbackEngine({
-    providers: CONFIGURED_PROVIDERS,
+    providers:
+      CONFIGURED_PROVIDERS,
+
     circuitBreakerPool,
+
     totalTimeoutMs:
       TOTAL_AI_REQUEST_TIMEOUT_MS,
+
     providerTimeoutMs:
       PROVIDER_TIMEOUT_MS,
   });
@@ -471,9 +546,13 @@ const agentAuditLogger =
 const agentLoop =
   new AgentLoop({
     toolRegistry,
+
     toolPolicy,
+
     toolValidator,
-    auditLogger: agentAuditLogger,
+
+    auditLogger:
+      agentAuditLogger,
 
     maxIterations:
       Number(
@@ -587,26 +666,8 @@ toolRegistry.register(
 );
 
 /* =========================================================
-   CENSYS — FIXED
+   CENSYS
 ========================================================= */
-
-/*
- * IMPORTANT:
- *
- * Old configuration:
- *
- *   CENSYS_API_ID
- *   CENSYS_API_SECRET
- *
- * is NOT what your current .env contains.
- *
- * Your .env uses:
- *
- *   CENSYS_API_TOKEN
- *   CENSYS_ORGANIZATION_ID
- *
- * Therefore the adapter MUST receive those values.
- */
 
 toolRegistry.register(
   createCensysTool({
@@ -623,11 +684,6 @@ toolRegistry.register(
   })
 );
 
-/*
- * Safe Censys diagnostic.
- *
- * NEVER print the actual token.
- */
 console.log(
   '[Censys] Configuration:',
   {
@@ -717,27 +773,6 @@ toolRegistry.register(
    AGENT PROVIDERS
 ========================================================= */
 
-/*
- * Agent chain:
- *
- *   Claude → Groq
- *
- * Claude is preferred.
- *
- * Groq remains available as fallback.
- *
- * This is important because your runtime already demonstrated:
- *
- * Claude billing failure
- *        ↓
- * Groq fallback
- *        ↓
- * investigation continues
- *
- * We therefore preserve the fallback rather than making
- * Claude the only agent provider.
- */
-
 const anthropicAgentInstance =
   process.env.ANTHROPIC_API_KEY
     ? new AnthropicProviderClass({
@@ -796,11 +831,6 @@ const groqAgentInstance =
       })
     : null;
 
-/*
- * IMPORTANT:
- *
- * Preserve the working Claude → Groq chain.
- */
 const AGENT_PROVIDERS = [
   anthropicAgentInstance,
   groqAgentInstance,
@@ -813,9 +843,14 @@ const AGENT_PROVIDERS = [
 const agentOrchestrator =
   new AgentOrchestrator({
     toolRegistry,
+
     toolPolicy,
+
     toolValidator,
-    auditLogger: agentAuditLogger,
+
+    auditLogger:
+      agentAuditLogger,
+
     agentLoop,
 
     agentProviders:
@@ -823,6 +858,7 @@ const agentOrchestrator =
 
     agentProviderOptions: {
       model: null,
+
       maxTokens:
         BALANCED_MAX_TOKENS,
     },
@@ -832,7 +868,7 @@ console.log(
   `🤖 Agent ready: ${
     agentOrchestrator.isConfigured()
       ? AGENT_PROVIDERS
-          .map((p) => p.name)
+          .map((provider) => provider.name)
           .join(' → ')
       : 'no (no agent-capable providers configured)'
   }`
@@ -842,7 +878,7 @@ console.log(
   `🔧 Registered tools: ${
     toolRegistry
       .list()
-      .map((t) => t.name)
+      .map((tool) => tool.name)
       .join(', ')
   }`
 );
@@ -851,7 +887,10 @@ console.log(
    MIDDLEWARE
 ========================================================= */
 
-app.set('trust proxy', 1);
+app.set(
+  'trust proxy',
+  1
+);
 
 app.use(
   helmet({
@@ -864,12 +903,14 @@ app.use(
 const corsOrigins =
   CLIENT_URL
     .split(',')
-    .map((o) => o.trim())
+    .map((origin) =>
+      origin.trim()
+    )
     .filter(Boolean);
 
 app.use(
   cors({
-    origin: function (
+    origin(
       origin,
       callback
     ) {
@@ -877,18 +918,23 @@ app.use(
         !origin ||
         corsOrigins.includes(origin)
       ) {
-        callback(null, true);
-      } else {
-        console.warn(
-          `CORS blocked: ${origin}`
+        callback(
+          null,
+          true
         );
 
-        callback(
-          new Error(
-            'CORS not allowed'
-          )
-        );
+        return;
       }
+
+      console.warn(
+        `CORS blocked: ${origin}`
+      );
+
+      callback(
+        new Error(
+          'CORS not allowed'
+        )
+      );
     },
 
     credentials: true,
@@ -923,6 +969,83 @@ app.use(
     next();
   }
 );
+
+/* =========================================================
+   SSE HELPERS
+========================================================= */
+
+function initializeSSE(
+  res
+) {
+  res.statusCode = 200;
+
+  res.setHeader(
+    'Content-Type',
+    'text/event-stream; charset=utf-8'
+  );
+
+  res.setHeader(
+    'Cache-Control',
+    'no-cache, no-transform'
+  );
+
+  res.setHeader(
+    'Connection',
+    'keep-alive'
+  );
+
+  res.setHeader(
+    'X-Accel-Buffering',
+    'no'
+  );
+
+  if (
+    typeof res.flushHeaders ===
+    'function'
+  ) {
+    res.flushHeaders();
+  }
+}
+
+function sendSSE(
+  res,
+  event,
+  data
+) {
+  if (
+    res.writableEnded ||
+    res.destroyed
+  ) {
+    return false;
+  }
+
+  try {
+    res.write(
+      `event: ${event}\n`
+    );
+
+    res.write(
+      `data: ${JSON.stringify(
+        data
+      )}\n\n`
+    );
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function endSSE(
+  res
+) {
+  if (
+    !res.writableEnded &&
+    !res.destroyed
+  ) {
+    res.end();
+  }
+}
 
 /* =========================================================
    SYSTEM PROMPT
@@ -1125,7 +1248,6 @@ RULES:
   low
   moderate
   high
-
 - limitations must explain what the evidence does not establish.
 - recommendations must use conditional language.
 - mitigation must be conditional.
@@ -1163,7 +1285,9 @@ were used to gather evidence.
    INTENT DETECTION
 ========================================================= */
 
-function detectIntent(text) {
+function detectIntent(
+  text
+) {
   const patterns = {
     code:
       /\b(code|implement|write|configure|terraform|policy)\b/i,
@@ -1184,18 +1308,26 @@ function detectIntent(text) {
       /\b(detect|monitor|alert|siem|log|investigate)\b/i,
   };
 
-  return Object.entries(patterns)
-    .filter(([_, pattern]) =>
-      pattern.test(text)
+  return Object.entries(
+    patterns
+  )
+    .filter(
+      ([, pattern]) =>
+        pattern.test(text)
     )
-    .map(([intent]) => intent);
+    .map(
+      ([intent]) => intent
+    );
 }
 
 /* =========================================================
    ROUTE SELECTION
 ========================================================= */
 
-function selectRoute(intents, text) {
+function selectRoute(
+  intents,
+  text
+) {
   const powerfulPatterns = [
     /\binvestigate\b/i,
     /\bincident response\b/i,
@@ -1204,8 +1336,9 @@ function selectRoute(intents, text) {
   ];
 
   if (
-    powerfulPatterns.some((p) =>
-      p.test(text)
+    powerfulPatterns.some(
+      (pattern) =>
+        pattern.test(text)
     ) ||
     text.length > 3000
   ) {
@@ -1237,11 +1370,16 @@ function prepareConversation(
   messages,
   systemPrompt = SYSTEM_PROMPT
 ) {
-  const safeMessages = messages
-    .filter(
-      (m) => m.role !== 'system'
-    )
-    .slice(-MAX_HISTORY_MESSAGES);
+  const safeMessages =
+    messages
+      .filter(
+        (message) =>
+          message &&
+          message.role !== 'system'
+      )
+      .slice(
+        -MAX_HISTORY_MESSAGES
+      );
 
   const selected = [];
 
@@ -1249,43 +1387,37 @@ function prepareConversation(
     systemPrompt.length;
 
   for (
-    let i = safeMessages.length - 1;
+    let i =
+      safeMessages.length - 1;
     i >= 0;
     i--
   ) {
-    const msg = safeMessages[i];
+    const message =
+      safeMessages[i];
 
     const content =
-      typeof msg.content === 'string'
-        ? msg.content
+      typeof message.content ===
+      'string'
+        ? message.content
         : JSON.stringify(
-            msg.content ?? ''
+            message.content ?? ''
           );
 
     if (
-      totalChars + content.length >
+      totalChars +
+        content.length >
       MAX_CONTEXT_CHARACTERS
     ) {
       break;
     }
 
     selected.unshift({
-      role: msg.role,
+      role: message.role,
       content,
     });
 
-    /*
-     * FIX:
-     *
-     * Old:
-     *   totalChars += msg.content.length;
-     *
-     * Problem:
-     * msg.content may be an object/array.
-     *
-     * Correct:
-     */
-    totalChars += content.length;
+    totalChars +=
+      content.length;
   }
 
   return [
@@ -1322,34 +1454,43 @@ app.get(
 
         providers:
           AGENT_PROVIDERS.map(
-            (p) => p.name
+            (provider) =>
+              provider.name
           ),
 
         tools:
           toolRegistry
             .list()
-            .map((t) => t.name),
+            .map(
+              (tool) =>
+                tool.name
+            ),
 
         structured:
           getStructuredCompliance(),
 
         readOnly: true,
+
+        progressStreaming: true,
       },
 
       censys: {
         tokenConfigured:
           Boolean(
-            process.env.CENSYS_API_TOKEN
+            process.env
+              .CENSYS_API_TOKEN
           ),
 
         organizationConfigured:
           Boolean(
-            process.env.CENSYS_ORGANIZATION_ID
+            process.env
+              .CENSYS_ORGANIZATION_ID
           ),
 
         timeoutMs:
           Number(
-            process.env.CENSYS_TIMEOUT_MS
+            process.env
+              .CENSYS_TIMEOUT_MS
           ) || 8000,
       },
 
@@ -1372,7 +1513,8 @@ app.get(
   '/api/diagnostics',
   (req, res) => {
     if (
-      NODE_ENV !== 'development'
+      NODE_ENV !==
+      'development'
     ) {
       return res
         .status(403)
@@ -1391,31 +1533,44 @@ app.get(
 
         providers:
           AGENT_PROVIDERS.map(
-            (p) => p.name
+            (provider) =>
+              provider.name
           ),
 
         tools:
           toolRegistry
             .list()
-            .map((t) => ({
-              name: t.name,
-              category: t.category,
-              riskLevel: t.riskLevel,
-            })),
+            .map(
+              (tool) => ({
+                name:
+                  tool.name,
+
+                category:
+                  tool.category,
+
+                riskLevel:
+                  tool.riskLevel,
+              })
+            ),
 
         structured:
           getStructuredCompliance(),
+
+        progressStreaming:
+          true,
       },
 
       censys: {
         tokenConfigured:
           Boolean(
-            process.env.CENSYS_API_TOKEN
+            process.env
+              .CENSYS_API_TOKEN
           ),
 
         organizationConfigured:
           Boolean(
-            process.env.CENSYS_ORGANIZATION_ID
+            process.env
+              .CENSYS_ORGANIZATION_ID
           ),
       },
     });
@@ -1430,7 +1585,8 @@ app.post(
   '/api/chat',
   chatLimiter,
   async (req, res) => {
-    const requestId = req.id;
+    const requestId =
+      req.id;
 
     const startTime =
       Date.now();
@@ -1442,7 +1598,9 @@ app.post(
       } = req.body;
 
       if (
-        !Array.isArray(messages) ||
+        !Array.isArray(
+          messages
+        ) ||
         messages.length === 0
       ) {
         return res
@@ -1457,8 +1615,9 @@ app.post(
         [...messages]
           .reverse()
           .find(
-            (m) =>
-              m.role === 'user'
+            (message) =>
+              message.role ===
+              'user'
           );
 
       if (!lastUserMessage) {
@@ -1474,15 +1633,24 @@ app.post(
         `[${requestId}] Starting request from user`
       );
 
+      const userText =
+        typeof lastUserMessage.content ===
+        'string'
+          ? lastUserMessage.content
+          : JSON.stringify(
+              lastUserMessage.content ??
+                ''
+            );
+
       const intents =
         detectIntent(
-          lastUserMessage.content
+          userText
         );
 
       const route =
         selectRoute(
           intents,
-          lastUserMessage.content
+          userText
         );
 
       console.log(
@@ -1536,6 +1704,10 @@ app.post(
           reply:
             result.reply,
 
+          conversationId:
+            conversationId ||
+            null,
+
           intents,
 
           metadata: {
@@ -1582,7 +1754,8 @@ app.post(
                   error.attemptedProviders,
 
                 lastError:
-                  error.originalError
+                  error
+                    .originalError
                     ?.message,
               },
             });
@@ -1595,7 +1768,8 @@ app.post(
 
         return res
           .status(
-            error.status || 500
+            error.status ||
+              500
           )
           .json({
             error:
@@ -1609,7 +1783,7 @@ app.post(
         error
       );
 
-      res
+      return res
         .status(500)
         .json({
           error:
@@ -1621,25 +1795,192 @@ app.post(
 
 /* =========================================================
    AGENT ENDPOINT
+   SSE + PROGRESSIVE RESPONSE STREAM
 ========================================================= */
 
 app.post(
   '/api/agent',
   chatLimiter,
   async (req, res) => {
-    const requestId = req.id;
+    const requestId =
+      req.id;
 
     const startTime =
       Date.now();
 
+    const streamRequested =
+      req.body?.stream === true;
+
+    let clientDisconnected =
+      false;
+
+    let streamFinished =
+      false;
+
+    /*
+     * Use the response connection for SSE disconnect detection.
+     *
+     * This avoids treating normal request-body completion as
+     * a client disconnect.
+     */
+    const onResponseClose =
+      () => {
+        if (
+          !streamFinished &&
+          !res.writableEnded
+        ) {
+          clientDisconnected = true;
+
+          console.log(
+            `[${requestId}] SSE client disconnected`
+          );
+        }
+      };
+
+    if (streamRequested) {
+      res.once(
+        'close',
+        onResponseClose
+      );
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * STREAM FINAL RESPONSE
+     * ---------------------------------------------------------
+     *
+     * IMPORTANT:
+     *
+     * This is NOT hidden model reasoning.
+     *
+     * The server first obtains and sanitizes the final response
+     * through SecurityAssessment.
+     *
+     * Only that final safe response is progressively emitted.
+     */
+
+    function streamFinalReply(
+      reply
+    ) {
+      if (
+        !streamRequested ||
+        !reply ||
+        res.writableEnded ||
+        res.destroyed ||
+        clientDisconnected
+      ) {
+        return;
+      }
+
+      const CHUNK_SIZE =
+        Number(
+          process.env.SSE_CHUNK_SIZE
+        ) || 10;
+
+      const CHUNK_DELAY_MS =
+        Number(
+          process.env.SSE_CHUNK_DELAY_MS
+        ) || 12;
+
+      let position = 0;
+
+      const sendNextChunk =
+        () => {
+          if (
+            clientDisconnected ||
+            res.writableEnded ||
+            res.destroyed
+          ) {
+            return;
+          }
+
+          if (
+            position >=
+            reply.length
+          ) {
+            streamFinished =
+              true;
+
+            sendSSE(
+              res,
+              'complete',
+              {
+                done: true,
+              }
+            );
+
+            endSSE(res);
+
+            return;
+          }
+
+          const chunk =
+            reply.slice(
+              position,
+              position +
+                CHUNK_SIZE
+            );
+
+          position +=
+            CHUNK_SIZE;
+
+          const sent =
+            sendSSE(
+              res,
+              'token',
+              {
+                content:
+                  chunk,
+              }
+            );
+
+          if (!sent) {
+            return;
+          }
+
+          setTimeout(
+            sendNextChunk,
+            CHUNK_DELAY_MS
+          );
+        };
+
+      sendNextChunk();
+    }
+
     try {
-      const { messages } =
-        req.body;
+      const {
+        messages,
+        conversationId,
+      } = req.body;
+
+      /* =====================================================
+         VALIDATE REQUEST
+      ===================================================== */
 
       if (
         !Array.isArray(messages) ||
         messages.length === 0
       ) {
+        if (streamRequested) {
+          initializeSSE(res);
+
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'Invalid request',
+
+              requestId,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(400)
           .json({
@@ -1656,11 +1997,32 @@ app.post(
         [...messages]
           .reverse()
           .find(
-            (m) =>
-              m.role === 'user'
+            (message) =>
+              message.role ===
+              'user'
           );
 
       if (!lastUserMessage) {
+        if (streamRequested) {
+          initializeSSE(res);
+
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'No user message',
+
+              requestId,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(400)
           .json({
@@ -1673,15 +2035,64 @@ app.post(
           });
       }
 
+      /* =====================================================
+         INITIALIZE SSE
+      ===================================================== */
+
+      if (streamRequested) {
+        initializeSSE(res);
+
+        sendSSE(
+          res,
+          'started',
+          {
+            requestId,
+
+            conversationId:
+              conversationId ||
+              null,
+
+            message:
+              'Starting security investigation',
+          }
+        );
+      }
+
+      /* =====================================================
+         PREPARE CONVERSATION
+      ===================================================== */
+
       const preparedMessages =
         prepareConversation(
           messages,
           AGENT_SYSTEM_PROMPT
         );
 
+      /* =====================================================
+         CHECK AGENT CONFIGURATION
+      ===================================================== */
+
       if (
         !agentOrchestrator.isConfigured()
       ) {
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'Agent services unavailable',
+
+              requestId,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(503)
           .json({
@@ -1696,9 +2107,45 @@ app.post(
           });
       }
 
+      /* =====================================================
+         PROGRESS — PREPARING
+      ===================================================== */
+
+      if (streamRequested) {
+        sendSSE(
+          res,
+          'progress',
+          {
+            stage:
+              'preparing',
+
+            message:
+              'Preparing investigation context',
+          }
+        );
+      }
+
       let result;
 
+      /* =====================================================
+         RUN AGENT
+      ===================================================== */
+
       try {
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'progress',
+            {
+              stage:
+                'tools',
+
+              message:
+                'Running authorized read-only security intelligence tools',
+            }
+          );
+        }
+
         result =
           await agentOrchestrator.run({
             messages:
@@ -1711,6 +2158,27 @@ app.post(
 
             userContext: {},
           });
+
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'progress',
+            {
+              stage:
+                'evidence',
+
+              message:
+                'Security intelligence collection completed',
+
+              toolsUsed:
+                Array.isArray(
+                  result.toolsUsed
+                )
+                  ? result.toolsUsed
+                  : [],
+            }
+          );
+        }
       } catch (agentError) {
         const duration =
           Date.now() -
@@ -1720,6 +2188,35 @@ app.post(
           `[${requestId}] Agent failure:`,
           agentError.message
         );
+
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                agentError.category ===
+                'agent_providers_exhausted'
+                  ? 'All agent providers failed'
+                  : agentError.message ||
+                    'Agent execution failed',
+
+              requestId,
+
+              responseTimeMs:
+                duration,
+
+              category:
+                agentError.category ||
+                'agent_error',
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
 
         return res
           .status(
@@ -1736,7 +2233,9 @@ app.post(
 
             metadata: {
               agent: true,
+
               toolMode: true,
+
               requestId,
 
               responseTimeMs:
@@ -1810,19 +2309,13 @@ app.post(
           ? result.toolsUsed
           : [];
 
-      /*
-       * Keep the user's original target text for the
-       * SecurityAssessment layer.
-       *
-       * The deterministic layer can extract the actual
-       * indicator from the evidence.
-       */
       const target =
         [...messages]
           .reverse()
           .find(
-            (m) =>
-              m.role === 'user'
+            (message) =>
+              message.role ===
+              'user'
           )?.content;
 
       const requiredComplete =
@@ -1838,7 +2331,8 @@ app.post(
       ===================================================== */
 
       if (
-        requiredTools.length > 0 &&
+        requiredTools.length >
+          0 &&
         !requiredComplete
       ) {
         console.error(
@@ -1851,6 +2345,30 @@ app.post(
           }
         );
 
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'Required investigation tool was not attempted',
+
+              requestId,
+
+              requiredTools,
+
+              attemptedRequiredTools,
+
+              missingRequiredTools,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(502)
           .json({
@@ -1859,7 +2377,9 @@ app.post(
 
             metadata: {
               agent: true,
+
               toolMode: true,
+
               requestId,
 
               requiredTools,
@@ -1883,6 +2403,20 @@ app.post(
         result.investigation ||
         null;
 
+      if (streamRequested) {
+        sendSSE(
+          res,
+          'progress',
+          {
+            stage:
+              'assessment',
+
+            message:
+              'Analyzing returned evidence and applying deterministic security assessment',
+          }
+        );
+      }
+
       /* =====================================================
          STRUCTURED OUTPUT TRACKING
       ===================================================== */
@@ -1891,7 +2425,8 @@ app.post(
         null;
 
       if (
-        requiredTools.length > 0
+        requiredTools.length >
+        0
       ) {
         try {
           parsedStructuredReply =
@@ -1929,13 +2464,6 @@ app.post(
           if (valid) {
             recordFirstAttemptValid();
           } else {
-            /*
-             * Keep the retry counter semantics from
-             * your existing implementation.
-             *
-             * The orchestrator/result layer remains
-             * authoritative for actual retries.
-             */
             recordRetryFailure();
           }
         } else {
@@ -1954,17 +2482,34 @@ app.post(
           result.reply,
           {
             toolsUsed,
+
             rawToolEvidence,
+
             target,
+
             investigation,
           }
         );
 
-      /* =====================================================
-         FINAL SAFETY VALIDATION
-      ===================================================== */
-
       if (!safeReply) {
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'Final synthesis did not produce a valid evidence-based assessment',
+
+              requestId,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(502)
           .json({
@@ -1973,8 +2518,11 @@ app.post(
 
             metadata: {
               agent: true,
+
               toolMode: true,
+
               requestId,
+
               toolsUsed,
             },
           });
@@ -2006,10 +2554,10 @@ app.post(
 
       const successfulVirusTotal =
         rawToolEvidence.some(
-          (e) =>
-            e.toolName ===
+          (evidence) =>
+            evidence.toolName ===
               'virustotal_ip_lookup' &&
-            e.ok
+            evidence.ok
         );
 
       if (
@@ -2020,6 +2568,24 @@ app.post(
           `[${requestId}] Agent requested IP despite successful VirusTotal lookup`
         );
 
+        if (streamRequested) {
+          sendSSE(
+            res,
+            'error',
+            {
+              error:
+                'Final synthesis did not produce a valid evidence-based assessment',
+
+              requestId,
+            }
+          );
+
+          streamFinished =
+            true;
+
+          return endSSE(res);
+        }
+
         return res
           .status(502)
           .json({
@@ -2028,76 +2594,152 @@ app.post(
 
             metadata: {
               agent: true,
+
               toolMode: true,
+
               requestId,
+
               toolsUsed,
             },
           });
       }
 
       /* =====================================================
-         SUCCESS
+         SUCCESS METADATA
       ===================================================== */
 
       const duration =
         Date.now() -
         startTime;
 
+      const metadata = {
+        agent: true,
+
+        toolMode: true,
+
+        provider:
+          result.provider,
+
+        model:
+          result.model,
+
+        iterations:
+          result.iterations,
+
+        toolsUsed,
+
+        requiredTools,
+
+        completedRequiredTools,
+
+        attemptedRequiredTools,
+
+        missingRequiredTools,
+
+        investigation,
+
+        stopReason:
+          result.stopReason ||
+          'end_turn',
+
+        aiAnalysis:
+          result.metadata
+            ?.aiAnalysis ||
+          'available',
+
+        providerFailures:
+          result.metadata
+            ?.providerFailures ||
+          [],
+
+        toolExpectedButNotCalled:
+          Boolean(
+            result.metadata
+              ?.toolExpectedButNotCalled
+          ),
+
+        responseTimeMs:
+          duration,
+
+        requestId,
+
+        conversationId:
+          conversationId ||
+          null,
+      };
+
+      console.log(
+        `[${requestId}] Agent SUCCESS | provider=${
+          result.provider
+        } | tools=${
+          toolsUsed.join(', ') ||
+          'none'
+        } | duration=${duration}ms`
+      );
+
+      /* =====================================================
+         SSE MODE
+      ===================================================== */
+
+      if (streamRequested) {
+        /*
+         * Tell the frontend that evidence processing has
+         * completed and safe response generation is starting.
+         */
+        sendSSE(
+          res,
+          'progress',
+          {
+            stage:
+              'generating',
+
+            message:
+              'Security assessment complete. Generating response...',
+          }
+        );
+
+        /*
+         * Send metadata before token events.
+         */
+        sendSSE(
+          res,
+          'metadata',
+          {
+            metadata,
+          }
+        );
+
+        /*
+         * IMPORTANT:
+         *
+         * Only safeReply is streamed.
+         *
+         * No hidden reasoning.
+         * No provider internals.
+         * No tool credentials.
+         */
+        streamFinalReply(
+          safeReply
+        );
+
+        /*
+         * Do NOT call endSSE() here.
+         *
+         * streamFinalReply() owns the response lifecycle.
+         */
+
+        return;
+      }
+
+      /* =====================================================
+         NORMAL JSON MODE
+      ===================================================== */
+
       return res.json({
         reply:
           safeReply,
 
-        metadata: {
-          agent: true,
-
-          toolMode: true,
-
-          provider:
-            result.provider,
-
-          model:
-            result.model,
-
-          iterations:
-            result.iterations,
-
-          toolsUsed,
-
-          requiredTools,
-
-          completedRequiredTools,
-
-          attemptedRequiredTools,
-
-          missingRequiredTools,
-
-          investigation,
-
-          stopReason:
-            result.stopReason ||
-            'end_turn',
-
-          aiAnalysis:
-            result.metadata
-              ?.aiAnalysis ||
-            'available',
-
-          providerFailures:
-            result.metadata
-              ?.providerFailures ||
-            [],
-
-          toolExpectedButNotCalled:
-            Boolean(
-              result.metadata
-                ?.toolExpectedButNotCalled
-            ),
-
-          responseTimeMs:
-            duration,
-
-          requestId,
-        },
+        metadata,
       });
     } catch (error) {
       console.error(
@@ -2105,9 +2747,36 @@ app.post(
         error.message
       );
 
+      if (
+        streamRequested &&
+        !res.headersSent
+      ) {
+        initializeSSE(res);
+      }
+
+      if (streamRequested) {
+        sendSSE(
+          res,
+          'error',
+          {
+            error:
+              error.message ||
+              'Agent error',
+
+            requestId,
+          }
+        );
+
+        streamFinished =
+          true;
+
+        return endSSE(res);
+      }
+
       return res
         .status(
-          error.status || 500
+          error.status ||
+            500
         )
         .json({
           error:
@@ -2116,13 +2785,107 @@ app.post(
 
           metadata: {
             requestId,
+
             agent: true,
+
             toolMode: true,
           },
         });
+    } finally {
+      /*
+       * Do not remove the response close listener here while
+       * streaming is still active.
+       *
+       * The listener is intentionally attached to the response
+       * lifecycle rather than the incoming request lifecycle.
+       */
     }
   }
 );
+
+/* ==========================================================================
+   SECURITY REPORT DOWNLOAD
+   ========================================================================== */
+
+app.post(
+  "/api/security-report",
+  async (req, res) => {
+    try {
+      const {
+        investigation,
+        metadata,
+        target,
+        requestId,
+      } = req.body || {};
+
+      if (
+        !investigation &&
+        !metadata?.investigation
+      ) {
+        return res.status(400).json({
+          error:
+            "No security investigation was provided.",
+        });
+      }
+
+      const pdf =
+        await generateSecurityReport({
+          investigation,
+          metadata,
+          target,
+          requestId,
+        });
+
+      const safeTarget =
+        String(
+          target ||
+            investigation?.target ||
+            metadata?.target ||
+            "security-investigation"
+        )
+          .replace(
+            /[^a-zA-Z0-9._-]/g,
+            "-"
+          )
+          .slice(0, 80);
+
+      const filename =
+        `Lakewest-Security-Report-${safeTarget}.pdf`;
+
+      res.status(200);
+
+      res.setHeader(
+        "Content-Type",
+        "application/pdf"
+      );
+
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${filename}"`
+      );
+
+      res.setHeader(
+        "Content-Length",
+        pdf.length
+      );
+
+      return res.end(pdf);
+    } catch (error) {
+      console.error(
+        "[SECURITY REPORT] Generation failed:",
+        error
+      );
+
+      return res.status(500).json({
+        error:
+          "Unable to generate the security report.",
+      });
+    }
+  }
+);
+
+
+
 
 /* =========================================================
    CLEAR CONVERSATION
@@ -2136,7 +2899,9 @@ app.post(
     } = req.body;
 
     res.json({
-      status: 'cleared',
+      status:
+        'cleared',
+
       conversationId,
     });
   }
@@ -2173,7 +2938,13 @@ app.use(
       err
     );
 
-    res
+    if (
+      res.headersSent
+    ) {
+      return next(err);
+    }
+
+    return res
       .status(500)
       .json({
         error:
@@ -2191,6 +2962,7 @@ const server =
     PORT,
     () => {
       console.log('');
+
       console.log(
         '════════════════════════════════════════'
       );
@@ -2218,7 +2990,10 @@ const server =
       console.log(
         `🤖 Providers: ${
           CONFIGURED_PROVIDERS
-            .map((p) => p.name)
+            .map(
+              (provider) =>
+                provider.name
+            )
             .join(', ')
         }`
       );
@@ -2227,7 +3002,10 @@ const server =
         `🧠 Agent: ${
           agentOrchestrator.isConfigured()
             ? AGENT_PROVIDERS
-                .map((p) => p.name)
+                .map(
+                  (provider) =>
+                    provider.name
+                )
                 .join(' → ')
             : 'disabled'
         }`
@@ -2237,18 +3015,26 @@ const server =
         `🔧 Tools: ${
           toolRegistry
             .list()
-            .map((t) => t.name)
+            .map(
+              (tool) =>
+                tool.name
+            )
             .join(', ')
         }`
       );
 
       console.log(
-        `🔐 Agent policy: READ-ONLY`
+        '🔐 Agent policy: READ-ONLY'
+      );
+
+      console.log(
+        '📡 Agent progress streaming: ENABLED'
       );
 
       console.log(
         `🧪 Censys token: ${
-          process.env.CENSYS_API_TOKEN
+          process.env
+            .CENSYS_API_TOKEN
             ? 'SET'
             : 'MISSING'
         }`
@@ -2256,7 +3042,8 @@ const server =
 
       console.log(
         `🏢 Censys organization: ${
-          process.env.CENSYS_ORGANIZATION_ID
+          process.env
+            .CENSYS_ORGANIZATION_ID
             ? 'SET'
             : 'EMPTY'
         }`
@@ -2278,13 +3065,22 @@ const server =
     }
   );
 
-server.timeout = 60000;
+server.timeout =
+  60000;
+
+server.keepAliveTimeout =
+  65000;
+
+server.headersTimeout =
+  66000;
 
 /* =========================================================
    GRACEFUL SHUTDOWN
 ========================================================= */
 
-function shutdown(signal) {
+function shutdown(
+  signal
+) {
   console.log(
     `${signal} received, closing server...`
   );
@@ -2314,13 +3110,17 @@ function shutdown(signal) {
 process.on(
   'SIGTERM',
   () =>
-    shutdown('SIGTERM')
+    shutdown(
+      'SIGTERM'
+    )
 );
 
 process.on(
   'SIGINT',
   () =>
-    shutdown('SIGINT')
+    shutdown(
+      'SIGINT'
+    )
 );
 
 /* =========================================================
