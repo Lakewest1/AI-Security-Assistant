@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState, useCallback, memo } from "react";
+
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
 import {
   Shield,
   Sun,
@@ -22,11 +25,22 @@ import {
   ShieldCheck,
   Wrench,
 } from "lucide-react";
+
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+/* --------------------------------------------------------------------------
+   API CONFIG
+   -------------------------------------------------------------------------- */
+
+const API_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:5000"
+).replace(/\/+$/, "");
 
 const SCROLL_BOTTOM_THRESHOLD = 48;
+
+/* --------------------------------------------------------------------------
+   THINKING WORDS
+   -------------------------------------------------------------------------- */
 
 const THINKING_WORDS = [
   "Analyzing your question...",
@@ -41,10 +55,14 @@ const AGENT_THINKING_WORDS = [
   "Investigating with security tools...",
   "Querying threat intelligence...",
   "Correlating indicators...",
-  "Consulting VirusTotal...",
+  "Consulting threat intelligence...",
   "Analyzing reputation data...",
   "Preparing investigation summary...",
 ];
+
+/* --------------------------------------------------------------------------
+   GREETINGS
+   -------------------------------------------------------------------------- */
 
 const INITIAL_GREETING =
   "Hello. I'm your AI Security Assistant. I can help with cybersecurity, cloud and application security, identity, incident response, digital privacy, and everyday safety. What would you like to explore?";
@@ -53,63 +71,121 @@ const CLEARED_GREETING =
   "Chat cleared. Ready for a new security or safety question.";
 
 /* --------------------------------------------------------------------------
-   Detect whether a request should route to the agent endpoint.
-   Returns true for explicit investigation language or bare IPs/domains.
+   SECURITY INVESTIGATION DETECTION
    -------------------------------------------------------------------------- */
 
-const IPV4_REGEX = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
-const IPV6_REGEX = /\b(?:[a-f0-9]{1,4}:){2,}[a-f0-9]{1,4}\b/i;
-const DOMAIN_REGEX = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/i;
+const IPV4_REGEX =
+  /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+
+const IPV6_REGEX =
+  /\b(?:[a-f0-9]{1,4}:){2,}[a-f0-9]{1,4}\b/i;
+
+const DOMAIN_REGEX =
+  /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/i;
 
 const AGENT_TRIGGER_WORDS = [
   "investigate",
+  "investigation",
   "analyze this ip",
   "analyze this domain",
   "analyze this host",
+  "check this ip",
+  "check this domain",
+  "check this host",
   "look up",
   "lookup",
   "threat intel",
   "threat intelligence",
   "reputation",
   "virustotal",
+  "virus total",
   "whois",
   "shodan",
   "abuseipdb",
+  "censys",
+  "securitytrails",
+  "urlscan",
   "indicator of compromise",
   "ioc",
   "c2 server",
   "command and control",
+  "malicious ip",
+  "malicious domain",
+  "suspicious ip",
+  "suspicious domain",
 ];
 
+/* --------------------------------------------------------------------------
+   Decide whether a request should use /api/agent.
+
+   Important:
+   - Normal security questions stay on /api/chat.
+   - Explicit investigations use /api/agent.
+   - IP/domain investigation requests use /api/agent.
+   -------------------------------------------------------------------------- */
+
 function shouldUseAgent(text) {
-  if (!text || typeof text !== "string") return false;
-  const lower = text.toLowerCase();
+  if (!text || typeof text !== "string") {
+    return false;
+  }
 
-  // Explicit trigger words
-  if (AGENT_TRIGGER_WORDS.some((w) => lower.includes(w))) return true;
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
 
-  // Bare IP address (v4 or v6) anywhere in the message
-  if (IPV4_REGEX.test(text)) return true;
-  if (IPV6_REGEX.test(text)) return true;
+  /* Explicit investigation language */
+  if (
+    AGENT_TRIGGER_WORDS.some((trigger) =>
+      lower.includes(trigger)
+    )
+  ) {
+    return true;
+  }
 
-  // Bare domain (must look like a real hostname, avoid matching "config.json" alone)
-  if (DOMAIN_REGEX.test(text)) {
-    const match = text.match(DOMAIN_REGEX);
-    if (match && match[0].includes(".") && !match[0].endsWith(".json")) {
-      // Only treat as agent trigger if the message is short and clearly about the domain
-      if (text.trim().split(/\s+/).length <= 8) return true;
+  /* IP address */
+  const hasIPv4 = IPV4_REGEX.test(trimmed);
+  const hasIPv6 = IPV6_REGEX.test(trimmed);
+
+  if (hasIPv4 || hasIPv6) {
+    return true;
+  }
+
+  /* Domain */
+  const domainMatch = trimmed.match(DOMAIN_REGEX);
+
+  if (domainMatch) {
+    const domain = domainMatch[0].toLowerCase();
+
+    const looksLikeCodeOrFile =
+      domain.endsWith(".json") ||
+      domain.endsWith(".js") ||
+      domain.endsWith(".jsx") ||
+      domain.endsWith(".ts") ||
+      domain.endsWith(".tsx") ||
+      domain.endsWith(".css") ||
+      domain.endsWith(".html") ||
+      domain.endsWith(".txt");
+
+    const wordCount = trimmed.split(/\s+/).length;
+
+    if (!looksLikeCodeOrFile && wordCount <= 10) {
+      return true;
     }
+
+    /* Longer requests containing a domain only use the agent when
+       investigation language is present. */
   }
 
   return false;
 }
 
 /* --------------------------------------------------------------------------
-   Markdown normalization — strips artifact fragments outside code blocks.
+   MARKDOWN NORMALIZATION
    -------------------------------------------------------------------------- */
 
 function normalizeMarkdown(text) {
-  if (!text || typeof text !== "string") return text;
+  if (!text || typeof text !== "string") {
+    return "";
+  }
 
   const lines = text.split("\n");
   const result = [];
@@ -128,19 +204,19 @@ function normalizeMarkdown(text) {
     }
 
     let cleaned = line;
+
     cleaned = cleaned.replace(/svgCopy$/, "");
     cleaned = cleaned.replace(/&lt;br&gt;/gi, "");
     cleaned = cleaned.replace(/<br\s*\/?>/gi, "");
+
     result.push(cleaned);
   }
 
-  return result.join("\n");
+  return result.join("\n").trim();
 }
 
 /* --------------------------------------------------------------------------
-   Frontend safety net: strip internal schema labels that the backend
-   sometimes emits as standalone lines (WHY IT MATTERS, CONCEPT, etc.).
-   Runs outside fenced code blocks only.
+   REMOVE INTERNAL SCHEMA LABELS
    -------------------------------------------------------------------------- */
 
 const SCHEMA_LABELS = [
@@ -166,12 +242,18 @@ const SCHEMA_LABELS = [
 ];
 
 function stripSchemaLabels(text) {
-  if (!text || typeof text !== "string") return text;
+  if (!text || typeof text !== "string") {
+    return "";
+  }
 
-  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const labelAlternation = SCHEMA_LABELS.map(escapeRegex).join("|");
+  const escapedLabels = SCHEMA_LABELS.map((label) =>
+    label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  );
+
+  const labelAlternation = escapedLabels.join("|");
+
   const standaloneLabel = new RegExp(
-    `^(#{1,6}\\s+|[-*+]\\s+|\\*\\*\\s*)?(${labelAlternation})\\s*:?\\s*(\\*\\*)?\\s*$`,
+    `^(?:#{1,6}\\s+|[-*+]\\s+|\\*\\*\\s*)?(?:${labelAlternation})\\s*:?[\\s*]*(?:\\*\\*)?\\s*$`,
     "i"
   );
 
@@ -198,8 +280,12 @@ function stripSchemaLabels(text) {
     out.push(line);
   }
 
-  return out.join("\n").replace(/\n{3,}/g, "\n\n");
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
+
+/* --------------------------------------------------------------------------
+   MESSAGE BUILDER
+   -------------------------------------------------------------------------- */
 
 function buildGreetingMessage(content = INITIAL_GREETING) {
   return {
@@ -210,6 +296,10 @@ function buildGreetingMessage(content = INITIAL_GREETING) {
     timestamp: new Date().toISOString(),
   };
 }
+
+/* --------------------------------------------------------------------------
+   VISUAL VIEWPORT
+   -------------------------------------------------------------------------- */
 
 function useVisualViewport() {
   const [viewport, setViewport] = useState(() => ({
@@ -223,137 +313,235 @@ function useVisualViewport() {
   }));
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
     const vv = window.visualViewport;
+
     if (!vv) {
-      const handleResize = () =>
-        setViewport({ height: window.innerHeight, keyboardOpen: false });
+      const handleResize = () => {
+        setViewport({
+          height: window.innerHeight,
+          keyboardOpen: false,
+        });
+      };
+
       window.addEventListener("resize", handleResize);
-      return () => window.removeEventListener("resize", handleResize);
+
+      return () => {
+        window.removeEventListener("resize", handleResize);
+      };
     }
 
     let rafId = null;
     let lastHeight = vv.height;
 
     const handleViewportChange = () => {
-      if (rafId) cancelAnimationFrame(rafId);
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
+
       rafId = requestAnimationFrame(() => {
-        if (Math.abs(vv.height - lastHeight) < 2) return;
+        if (Math.abs(vv.height - lastHeight) < 2) {
+          return;
+        }
+
         lastHeight = vv.height;
+
         setViewport({
           height: vv.height,
-          keyboardOpen: vv.height < window.innerHeight - 100,
+          keyboardOpen:
+            vv.height < window.innerHeight - 100,
         });
       });
     };
 
     vv.addEventListener("resize", handleViewportChange);
     vv.addEventListener("scroll", handleViewportChange);
+
     handleViewportChange();
 
     return () => {
-      vv.removeEventListener("resize", handleViewportChange);
-      vv.removeEventListener("scroll", handleViewportChange);
-      if (rafId) cancelAnimationFrame(rafId);
+      vv.removeEventListener(
+        "resize",
+        handleViewportChange
+      );
+
+      vv.removeEventListener(
+        "scroll",
+        handleViewportChange
+      );
+
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
     };
   }, []);
 
   return viewport;
 }
 
+/* --------------------------------------------------------------------------
+   SUGGESTION CARDS
+   -------------------------------------------------------------------------- */
+
 const SUGGESTION_CARDS = [
   {
     icon: Search,
     title: "Investigate a threat",
-    description: "Analyze suspicious activity, an IP, or a domain",
-    prompt: "Investigate this IP: 185.220.101.34",
+    description:
+      "Analyze suspicious activity, an IP, or a domain",
+    prompt:
+      "Investigate this IP: 185.220.101.34",
   },
   {
     icon: Lock,
     title: "Secure my system",
-    description: "Find practical ways to reduce security risk",
+    description:
+      "Find practical ways to reduce security risk",
     prompt:
       "What are the most effective steps I can take to reduce security risk on a system I manage?",
   },
   {
     icon: Terminal,
     title: "Write a detection",
-    description: "Create a KQL, Sigma, YARA, or detection rule",
+    description:
+      "Create a KQL, Sigma, YARA, or detection rule",
     prompt:
       "Help me write a detection rule. Suggest the right format (KQL, Sigma, YARA, or similar) and explain the logic.",
   },
   {
     icon: ClipboardCheck,
     title: "Review security",
-    description: "Assess a configuration, architecture, or control",
+    description:
+      "Assess a configuration, architecture, or control",
     prompt:
       "Help me review a security configuration or architecture. What should I be evaluating and what common weaknesses should I look for?",
   },
   {
     icon: ShieldCheck,
     title: "Respond to an incident",
-    description: "Build a step-by-step response plan",
+    description:
+      "Build a step-by-step response plan",
     prompt:
       "Help me build a step-by-step incident response plan. What should I do first, and how should I structure the response?",
   },
   {
     icon: LifeBuoy,
     title: "Stay safe",
-    description: "Practical digital, privacy, or personal safety guidance",
+    description:
+      "Practical digital, privacy, or personal safety guidance",
     prompt:
       "What practical steps can I take to stay safe online and protect my personal data?",
   },
 ];
 
+/* --------------------------------------------------------------------------
+   REACT NODE → TEXT
+   -------------------------------------------------------------------------- */
+
 function nodeToText(node) {
-  if (node === null || node === undefined || node === false) return "";
-  if (typeof node === "string" || typeof node === "number") return String(node);
-  if (Array.isArray(node)) return node.map(nodeToText).join("");
+  if (
+    node === null ||
+    node === undefined ||
+    node === false
+  ) {
+    return "";
+  }
+
+  if (
+    typeof node === "string" ||
+    typeof node === "number"
+  ) {
+    return String(node);
+  }
+
+  if (Array.isArray(node)) {
+    return node.map(nodeToText).join("");
+  }
+
   if (typeof node === "object" && node.props) {
     return nodeToText(node.props.children);
   }
+
   return "";
 }
 
 /* --------------------------------------------------------------------------
-   ResponsiveTable
-   Desktop: normal <table>.
-   Mobile:  flat stacked label/value rows — no horizontal scroll needed.
+   RESPONSIVE TABLE
    -------------------------------------------------------------------------- */
 
-const ResponsiveTable = memo(function ResponsiveTable({ children }) {
-  const nodes = Array.isArray(children) ? children : [children];
+const ResponsiveTable = memo(function ResponsiveTable({
+  children,
+}) {
+  const nodes = Array.isArray(children)
+    ? children
+    : [children];
 
   const headerRow = (() => {
     for (const node of nodes) {
-      if (!node || !node.props) continue;
+      if (!node || !node.props) {
+        continue;
+      }
+
       const kids = node.props.children;
+
       if (node.type === "thead" && kids) {
-        const headRow = Array.isArray(kids) ? kids[0] : kids;
+        const headRow = Array.isArray(kids)
+          ? kids[0]
+          : kids;
+
         const cells = headRow?.props?.children;
-        const arr = Array.isArray(cells) ? cells : [cells];
-        return arr.map((c) => nodeToText(c?.props?.children));
+
+        const arr = Array.isArray(cells)
+          ? cells
+          : [cells];
+
+        return arr.map((cell) =>
+          nodeToText(cell?.props?.children)
+        );
       }
     }
+
     return [];
   })();
 
   const bodyRows = (() => {
     const rows = [];
+
     for (const node of nodes) {
-      if (!node || !node.props) continue;
+      if (!node || !node.props) {
+        continue;
+      }
+
       if (node.type === "tbody") {
-        const rowNodes = Array.isArray(node.props.children)
+        const rowNodes = Array.isArray(
+          node.props.children
+        )
           ? node.props.children
           : [node.props.children];
+
         for (const row of rowNodes) {
-          if (!row || !row.props) continue;
-          const cellNodes = Array.isArray(row.props.children)
+          if (!row || !row.props) {
+            continue;
+          }
+
+          const cellNodes = Array.isArray(
+            row.props.children
+          )
             ? row.props.children
             : [row.props.children];
-          rows.push(cellNodes.map((c) => nodeToText(c?.props?.children)));
+
+          rows.push(
+            cellNodes.map((cell) =>
+              nodeToText(cell?.props?.children)
+            )
+          );
         }
       }
     }
+
     return rows;
   })();
 
@@ -364,18 +552,19 @@ const ResponsiveTable = memo(function ResponsiveTable({ children }) {
           {headerRow.length > 0 && (
             <thead>
               <tr>
-                {headerRow.map((label, i) => (
-                  <th key={i}>{label}</th>
+                {headerRow.map((label, index) => (
+                  <th key={index}>{label}</th>
                 ))}
               </tr>
             </thead>
           )}
+
           {bodyRows.length > 0 && (
             <tbody>
-              {bodyRows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => (
-                    <td key={ci}>{cell}</td>
+              {bodyRows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={cellIndex}>{cell}</td>
                   ))}
                 </tr>
               ))}
@@ -385,15 +574,29 @@ const ResponsiveTable = memo(function ResponsiveTable({ children }) {
       </div>
 
       <div className="mobile-table" role="list">
-        {bodyRows.map((row, ri) => (
-          <div className="mobile-table-row" role="listitem" key={ri}>
-            {row.map((cell, ci) => (
-              <div className="mobile-table-field" key={ci}>
-                {headerRow[ci] && (
-                  <div className="mobile-table-label">{headerRow[ci]}</div>
+        {bodyRows.map((row, rowIndex) => (
+          <div
+            className="mobile-table-row"
+            role="listitem"
+            key={rowIndex}
+          >
+            {row.map((cell, cellIndex) => (
+              <div
+                className="mobile-table-field"
+                key={cellIndex}
+              >
+                {headerRow[cellIndex] && (
+                  <div className="mobile-table-label">
+                    {headerRow[cellIndex]}
+                  </div>
                 )}
+
                 <div className="mobile-table-value">
-                  {cell || <span className="mobile-table-empty">—</span>}
+                  {cell || (
+                    <span className="mobile-table-empty">
+                      —
+                    </span>
+                  )}
                 </div>
               </div>
             ))}
@@ -405,7 +608,7 @@ const ResponsiveTable = memo(function ResponsiveTable({ children }) {
 });
 
 /* --------------------------------------------------------------------------
-   CodeBlock
+   CODE BLOCK
    -------------------------------------------------------------------------- */
 
 const CodeBlock = memo(function CodeBlock({
@@ -415,16 +618,27 @@ const CodeBlock = memo(function CodeBlock({
   ...props
 }) {
   const [copied, setCopied] = useState(false);
-  const match = /language-(\w+)/.exec(className || "");
+
+  const match = /language-(\w+)/.exec(
+    className || ""
+  );
+
   const code = String(children).replace(/\n$/, "");
 
   const handleCopyCode = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(code);
+
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+
+      setTimeout(() => {
+        setCopied(false);
+      }, 2000);
     } catch (error) {
-      console.error("Failed to copy code:", error);
+      console.error(
+        "Failed to copy code:",
+        error
+      );
     }
   }, [code]);
 
@@ -432,16 +646,28 @@ const CodeBlock = memo(function CodeBlock({
     return (
       <div className="code-block">
         <div className="code-header">
-          <span className="code-language">{match[1]}</span>
+          <span className="code-language">
+            {match[1]}
+          </span>
+
           <button
+            type="button"
             className="code-copy-button"
             onClick={handleCopyCode}
             aria-label="Copy code"
           >
-            {copied ? <Check size={13} /> : <Copy size={13} />}
-            <span>{copied ? "Copied" : "Copy"}</span>
+            {copied ? (
+              <Check size={13} />
+            ) : (
+              <Copy size={13} />
+            )}
+
+            <span>
+              {copied ? "Copied" : "Copy"}
+            </span>
           </button>
         </div>
+
         <SyntaxHighlighter
           style={oneDark}
           language={match[1]}
@@ -462,14 +688,17 @@ const CodeBlock = memo(function CodeBlock({
   }
 
   return (
-    <code className={`inline-code ${className || ""}`} {...props}>
+    <code
+      className={`inline-code ${className || ""}`}
+      {...props}
+    >
       {children}
     </code>
   );
 });
 
 /* --------------------------------------------------------------------------
-   MessageItem
+   MESSAGE ITEM
    -------------------------------------------------------------------------- */
 
 const MessageItem = memo(function MessageItem({
@@ -480,34 +709,67 @@ const MessageItem = memo(function MessageItem({
   onRetry,
 }) {
   const isUser = message.role === "user";
-  const formatTime = (ts) =>
-    new Date(ts).toLocaleTimeString([], {
+
+  const formatTime = (timestamp) =>
+    new Date(timestamp).toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
     });
 
-  const usedTools = Array.isArray(message.metadata?.toolsUsed)
+  const usedTools = Array.isArray(
+    message.metadata?.toolsUsed
+  )
     ? message.metadata.toolsUsed
     : [];
 
+  const isInvestigation =
+    message.metadata?.mode === "agent" ||
+    message.metadata?.toolMode === true ||
+    message.isInvestigation === true;
+
   return (
     <div
-      className={`message ${isUser ? "user" : "assistant"} ${
-        message.isError ? "error" : ""
-      }`}
+      className={`message ${
+        isUser ? "user" : "assistant"
+      } ${message.isError ? "error" : ""}`}
     >
       <div className="message-meta">
         {!isUser && (
-          <Shield size={13} className="message-author-icon" aria-hidden="true" />
+          <Shield
+            size={13}
+            className="message-author-icon"
+            aria-hidden="true"
+          />
         )}
-        <span className="message-author">{isUser ? "YOU" : "AI"}</span>
+
+        <span className="message-author">
+          {isUser ? "YOU" : "AI"}
+        </span>
+
         {message.timestamp && (
-          <span className="message-time">{formatTime(message.timestamp)}</span>
+          <span className="message-time">
+            {formatTime(message.timestamp)}
+          </span>
         )}
-        {!isUser && usedTools.length > 0 && (
-          <span className="message-tool-badge" title={`Tools used: ${usedTools.join(", ")}`}>
+
+        {!isUser && isInvestigation && (
+          <span
+            className="message-tool-badge"
+            title="Investigation agent response"
+          >
             <Wrench size={11} />
-            {usedTools.length} tool{usedTools.length > 1 ? "s" : ""}
+            investigation
+          </span>
+        )}
+
+        {!isUser && usedTools.length > 0 && (
+          <span
+            className="message-tool-badge"
+            title={`Tools used: ${usedTools.join(", ")}`}
+          >
+            <Wrench size={11} />
+            {usedTools.length} tool
+            {usedTools.length > 1 ? "s" : ""}
           </span>
         )}
       </div>
@@ -521,8 +783,13 @@ const MessageItem = memo(function MessageItem({
                 components={{
                   code: CodeBlock,
                   table: ResponsiveTable,
+
                   blockquote({ children }) {
-                    return <blockquote>{children}</blockquote>;
+                    return (
+                      <blockquote>
+                        {children}
+                      </blockquote>
+                    );
                   },
                 }}
               >
@@ -530,52 +797,68 @@ const MessageItem = memo(function MessageItem({
               </ReactMarkdown>
             </div>
 
-            {message.metadata && message.metadata.responseTimeMs ? (
+            {message.metadata?.responseTimeMs ? (
               <div className="metadata-footer">
                 <span className="metadata-provider">
                   Generated in{" "}
-                  {(message.metadata.responseTimeMs / 1000).toFixed(1)}s
+                  {(
+                    message.metadata.responseTimeMs /
+                    1000
+                  ).toFixed(1)}
+                  s
                   {message.metadata.provider
                     ? ` · ${message.metadata.provider}`
                     : ""}
-                  {message.metadata.toolMode ? " · tool-assisted" : ""}
+                  {message.metadata.toolMode
+                    ? " · tool-assisted"
+                    : ""}
                 </span>
               </div>
             ) : null}
           </>
         ) : (
-          <div className="plain-message">{message.displayContent}</div>
+          <div className="plain-message">
+            {message.displayContent}
+          </div>
         )}
       </div>
 
-      {!isUser && !message.isError && message.fullContent && (
-        <div className="message-actions">
-          <button
-            className="message-action-btn"
-            onClick={() => onCopy(message.fullContent, index)}
-            aria-label="Copy response"
-            title="Copy response"
-          >
-            {copiedMessageId === index ? (
-              <Check size={13} />
-            ) : (
-              <Copy size={13} />
-            )}
-          </button>
-          <button
-            className="message-action-btn"
-            onClick={onRetry}
-            aria-label="Retry response"
-            title="Retry"
-          >
-            <RotateCcw size={13} />
-          </button>
-        </div>
-      )}
+      {!isUser &&
+        !message.isError &&
+        message.fullContent && (
+          <div className="message-actions">
+            <button
+              type="button"
+              className="message-action-btn"
+              onClick={() =>
+                onCopy(message.fullContent, index)
+              }
+              aria-label="Copy response"
+              title="Copy response"
+            >
+              {copiedMessageId === index ? (
+                <Check size={13} />
+              ) : (
+                <Copy size={13} />
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="message-action-btn"
+              onClick={onRetry}
+              aria-label="Retry response"
+              title="Retry"
+            >
+              <RotateCcw size={13} />
+            </button>
+          </div>
+        )}
 
       {message.isError && (
         <div className="message-actions visible">
           <button
+            type="button"
             className="message-action-btn error"
             onClick={onRetry}
             aria-label="Try again"
@@ -590,32 +873,69 @@ const MessageItem = memo(function MessageItem({
 });
 
 /* --------------------------------------------------------------------------
-   App
+   APP
    -------------------------------------------------------------------------- */
 
 function App() {
-  const [messages, setMessages] = useState(() => [buildGreetingMessage()]);
+  const [messages, setMessages] = useState(() => [
+    buildGreetingMessage(),
+  ]);
+
   const [input, setInput] = useState("");
-  const [isRequesting, setIsRequesting] = useState(false);
-  const [isAgentMode, setIsAgentMode] = useState(false);
-  const [thinkingWord, setThinkingWord] = useState(THINKING_WORDS[0]);
+  const [isRequesting, setIsRequesting] =
+    useState(false);
+
+  const [isAgentMode, setIsAgentMode] =
+    useState(false);
+
+  const [thinkingWord, setThinkingWord] = useState(
+    THINKING_WORDS[0]
+  );
+
   const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem("darkMode");
-    return saved
-      ? JSON.parse(saved)
-      : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    try {
+      const saved = localStorage.getItem(
+        "darkMode"
+      );
+
+      if (saved !== null) {
+        return JSON.parse(saved);
+      }
+    } catch {
+      // Ignore localStorage errors.
+    }
+
+    return (
+      typeof window !== "undefined" &&
+      window.matchMedia &&
+      window.matchMedia(
+        "(prefers-color-scheme: dark)"
+      ).matches
+    );
   });
-  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const [showScrollButton, setShowScrollButton] =
+    useState(false);
+
   const [intents, setIntents] = useState([]);
-  const [copiedMessageId, setCopiedMessageId] = useState(null);
-  const [conversationId, setConversationId] = useState(null);
+
+  const [copiedMessageId, setCopiedMessageId] =
+    useState(null);
+
+  const [conversationId, setConversationId] =
+    useState(null);
 
   const textareaRef = useRef(null);
   const messagesContainerRef = useRef(null);
-  const scrollStateRef = useRef({ isNearBottom: true });
+
+  const scrollStateRef = useRef({
+    isNearBottom: true,
+  });
+
   const requestAbortRef = useRef(null);
 
-  const { height: viewportHeight } = useVisualViewport();
+  const { height: viewportHeight } =
+    useVisualViewport();
 
   const isEmptyState =
     messages.length === 1 &&
@@ -623,85 +943,209 @@ function App() {
     typeof messages[0]?.id === "string" &&
     messages[0].id.startsWith("init-");
 
+  /* ------------------------------------------------------------------------
+     THINKING ANIMATION
+     ------------------------------------------------------------------------ */
+
   useEffect(() => {
-    if (!isRequesting) return;
-    const pool = isAgentMode ? AGENT_THINKING_WORDS : THINKING_WORDS;
+    if (!isRequesting) {
+      return undefined;
+    }
+
+    const pool = isAgentMode
+      ? AGENT_THINKING_WORDS
+      : THINKING_WORDS;
+
     const interval = setInterval(() => {
-      setThinkingWord(
-        (prev) => pool[(pool.indexOf(prev) + 1) % pool.length]
-      );
+      setThinkingWord((previous) => {
+        const currentIndex = pool.indexOf(
+          previous
+        );
+
+        return pool[
+          (currentIndex + 1) % pool.length
+        ];
+      });
     }, 2500);
+
     return () => clearInterval(interval);
   }, [isRequesting, isAgentMode]);
 
-  useEffect(() => {
-    localStorage.setItem("darkMode", JSON.stringify(darkMode));
-    document.documentElement.classList.toggle("dark", darkMode);
-  }, [darkMode]);
+  /* ------------------------------------------------------------------------
+     DARK MODE
+     ------------------------------------------------------------------------ */
 
   useEffect(() => {
-    const el = textareaRef.current;
-    if (el) {
-      el.style.height = "auto";
-      const maxHeight = window.innerWidth <= 600 ? 180 : 220;
-      el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
-      el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+    try {
+      localStorage.setItem(
+        "darkMode",
+        JSON.stringify(darkMode)
+      );
+    } catch {
+      // Ignore storage errors.
     }
+
+    document.documentElement.classList.toggle(
+      "dark",
+      darkMode
+    );
+  }, [darkMode]);
+
+  /* ------------------------------------------------------------------------
+     TEXTAREA AUTO HEIGHT
+     ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    const element = textareaRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    element.style.height = "auto";
+
+    const maxHeight =
+      typeof window !== "undefined" &&
+      window.innerWidth <= 600
+        ? 180
+        : 220;
+
+    element.style.height =
+      Math.min(
+        element.scrollHeight,
+        maxHeight
+      ) + "px";
+
+    element.style.overflowY =
+      element.scrollHeight > maxHeight
+        ? "auto"
+        : "hidden";
   }, [input]);
+
+  /* ------------------------------------------------------------------------
+     CLEANUP REQUEST
+     ------------------------------------------------------------------------ */
 
   useEffect(() => {
     return () => {
-      if (requestAbortRef.current) requestAbortRef.current.abort();
+      if (requestAbortRef.current) {
+        requestAbortRef.current.abort();
+      }
     };
   }, []);
 
+  /* ------------------------------------------------------------------------
+     SCROLL METRICS
+     ------------------------------------------------------------------------ */
+
   const computeScrollMetrics = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const hasOverflow = scrollHeight - clientHeight > SCROLL_BOTTOM_THRESHOLD;
-    const isAtBottom = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
-    scrollStateRef.current.isNearBottom = isAtBottom;
-    setShowScrollButton(hasOverflow && !isAtBottom);
+    const container =
+      messagesContainerRef.current;
+
+    if (!container) {
+      return;
+    }
+
+    const {
+      scrollTop,
+      scrollHeight,
+      clientHeight,
+    } = container;
+
+    const distanceFromBottom =
+      scrollHeight -
+      scrollTop -
+      clientHeight;
+
+    const hasOverflow =
+      scrollHeight -
+        clientHeight >
+      SCROLL_BOTTOM_THRESHOLD;
+
+    const isAtBottom =
+      distanceFromBottom <=
+      SCROLL_BOTTOM_THRESHOLD;
+
+    scrollStateRef.current.isNearBottom =
+      isAtBottom;
+
+    setShowScrollButton(
+      hasOverflow && !isAtBottom
+    );
   }, []);
 
+  /* ------------------------------------------------------------------------
+     KEEP SCROLL POSITION UPDATED
+     ------------------------------------------------------------------------ */
+
   useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const raf = requestAnimationFrame(computeScrollMetrics);
+    const container =
+      messagesContainerRef.current;
+
+    if (!container) {
+      return undefined;
+    }
+
+    const raf =
+      requestAnimationFrame(
+        computeScrollMetrics
+      );
+
     const observer = new MutationObserver(() => {
-      if (scrollStateRef.current.isNearBottom) {
-        container.scrollTop = container.scrollHeight;
+      if (
+        scrollStateRef.current.isNearBottom
+      ) {
+        container.scrollTop =
+          container.scrollHeight;
       }
+
       computeScrollMetrics();
     });
+
     observer.observe(container, {
       childList: true,
       subtree: true,
       characterData: true,
     });
+
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
     };
   }, [computeScrollMetrics]);
 
+  /* ------------------------------------------------------------------------
+     SCROLL TO BOTTOM
+     ------------------------------------------------------------------------ */
+
   const scrollToBottom = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+    const container =
+      messagesContainerRef.current;
+
+    if (!container) {
+      return;
+    }
+
     const prefersReducedMotion =
       typeof window !== "undefined" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.matchMedia &&
+      window.matchMedia(
+        "(prefers-reduced-motion: reduce)"
+      ).matches;
+
     if (prefersReducedMotion) {
-      container.scrollTop = container.scrollHeight;
+      container.scrollTop =
+        container.scrollHeight;
     } else {
       container.scrollTo({
         top: container.scrollHeight,
         behavior: "smooth",
       });
     }
-    scrollStateRef.current.isNearBottom = true;
+
+    scrollStateRef.current.isNearBottom =
+      true;
+
     setShowScrollButton(false);
   }, []);
 
@@ -710,84 +1154,221 @@ function App() {
   }, [computeScrollMetrics]);
 
   /* ------------------------------------------------------------------------
-     Unified request runner — decides agent vs chat based on message content.
+     UNIFIED API REQUEST RUNNER
+
+     Normal question:
+       /api/chat
+
+     Investigation:
+       /api/agent
      ------------------------------------------------------------------------ */
 
   const runRequest = useCallback(
     async (apiMessages, { useAgent }) => {
-      if (requestAbortRef.current) requestAbortRef.current.abort();
-      const controller = new AbortController();
+      if (requestAbortRef.current) {
+        requestAbortRef.current.abort();
+      }
+
+      const controller =
+        new AbortController();
+
       requestAbortRef.current = controller;
 
       setIsRequesting(true);
       setIsAgentMode(useAgent);
-      setThinkingWord(
-        useAgent ? AGENT_THINKING_WORDS[0] : THINKING_WORDS[0]
-      );
-      scrollStateRef.current.isNearBottom = true;
 
-      const endpoint = useAgent ? "/api/agent" : "/api/chat";
+      setThinkingWord(
+        useAgent
+          ? AGENT_THINKING_WORDS[0]
+          : THINKING_WORDS[0]
+      );
+
+      scrollStateRef.current.isNearBottom =
+        true;
+
+      const endpoint = useAgent
+        ? "/api/agent"
+        : "/api/chat";
 
       try {
-        const response = await fetch(`${API_URL}${endpoint}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, conversationId }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || `HTTP ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        if (data.conversationId) setConversationId(data.conversationId);
-        if (data.intents) setIntents(data.intents);
-
-        const normalizedReply = stripSchemaLabels(
-          normalizeMarkdown(data.reply)
+        const response = await fetch(
+          `${API_URL}${endpoint}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+            body: JSON.stringify({
+              messages: apiMessages,
+              conversationId,
+            }),
+            signal: controller.signal,
+          }
         );
 
-        setMessages((prev) => [
-          ...prev,
+        const rawText =
+          await response.text();
+
+        let data = {};
+
+        try {
+          data = rawText
+            ? JSON.parse(rawText)
+            : {};
+        } catch {
+          data = {
+            reply: rawText,
+          };
+        }
+
+        if (!response.ok) {
+          throw new Error(
+            data?.error ||
+              data?.message ||
+              `HTTP ${response.status}`
+          );
+        }
+
+        if (
+          data.conversationId
+        ) {
+          setConversationId(
+            data.conversationId
+          );
+        }
+
+        if (Array.isArray(data.intents)) {
+          setIntents(data.intents);
+        }
+
+        const rawReply =
+          data.reply ??
+          data.response ??
+          data.answer ??
+          data.message ??
+          data.report ??
+          "";
+
+        if (!rawReply) {
+          throw new Error(
+            "The API returned no assistant response."
+          );
+        }
+
+        const normalizedReply =
+          stripSchemaLabels(
+            normalizeMarkdown(
+              String(rawReply)
+            )
+          );
+
+        const metadata = {
+          ...(data.metadata || {}),
+          mode: useAgent
+            ? "agent"
+            : "chat",
+          toolMode:
+            useAgent ||
+            data.metadata?.toolMode ||
+            false,
+          toolsUsed:
+            data.metadata?.toolsUsed ||
+            data.toolsUsed ||
+            [],
+          provider:
+            data.metadata?.provider ||
+            data.provider ||
+            "",
+          responseTimeMs:
+            data.metadata
+              ?.responseTimeMs ||
+            data.responseTimeMs ||
+            null,
+        };
+
+        setMessages((previous) => [
+          ...previous,
           {
-            id: "assistant-" + Date.now(),
+            id:
+              "assistant-" +
+              Date.now() +
+              "-" +
+              Math.random()
+                .toString(36)
+                .slice(2),
             role: "assistant",
-            displayContent: normalizedReply,
-            fullContent: normalizedReply,
-            timestamp: new Date().toISOString(),
-            metadata: data.metadata,
+            displayContent:
+              normalizedReply,
+            fullContent:
+              normalizedReply,
+            timestamp:
+              new Date().toISOString(),
+            metadata,
+            isInvestigation: useAgent,
           },
         ]);
 
-        if (scrollStateRef.current.isNearBottom) {
-          setTimeout(scrollToBottom, 50);
+        if (
+          scrollStateRef.current
+            .isNearBottom
+        ) {
+          setTimeout(
+            scrollToBottom,
+            50
+          );
         }
+
+        return data;
       } catch (error) {
-        if (error.name === "AbortError") return;
-        setMessages((prev) => [
-          ...prev,
+        if (
+          error?.name ===
+          "AbortError"
+        ) {
+          return null;
+        }
+
+        console.error(
+          "AI Security Assistant request failed:",
+          error
+        );
+
+        const errorText =
+          error?.message ||
+          "Unable to reach the AI service. Please try again.";
+
+        setMessages((previous) => [
+          ...previous,
           {
-            id: "error-" + Date.now(),
+            id:
+              "error-" +
+              Date.now(),
             role: "assistant",
-            displayContent: `⚠️ ${
-              error.message ||
-              "Unable to reach the AI service. Please try again."
-            }`,
-            fullContent: `⚠️ ${
-              error.message ||
-              "Unable to reach the AI service. Please try again."
-            }`,
-            timestamp: new Date().toISOString(),
+            displayContent:
+              `⚠️ ${errorText}`,
+            fullContent:
+              `⚠️ ${errorText}`,
+            timestamp:
+              new Date().toISOString(),
             isError: true,
+            metadata: {
+              mode: useAgent
+                ? "agent"
+                : "chat",
+            },
           },
         ]);
+
+        return null;
       } finally {
-        if (requestAbortRef.current === controller) {
-          requestAbortRef.current = null;
+        if (
+          requestAbortRef.current ===
+          controller
+        ) {
+          requestAbortRef.current =
+            null;
         }
+
         setIsRequesting(false);
         setIsAgentMode(false);
       }
@@ -795,206 +1376,465 @@ function App() {
     [conversationId, scrollToBottom]
   );
 
+  /* ------------------------------------------------------------------------
+     SEND MESSAGE
+     ------------------------------------------------------------------------ */
+
   const sendMessage = useCallback(
     async (content = input) => {
-      const trimmedInput = content.trim();
-      if (!trimmedInput || isRequesting) return;
+      const trimmedInput =
+        typeof content === "string"
+          ? content.trim()
+          : "";
 
-      if (trimmedInput.length > 4000) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: "error-" + Date.now(),
-            role: "assistant",
-            displayContent: "⚠️ Your message exceeds the 4000 character limit.",
-            fullContent: "⚠️ Your message exceeds the 4000 character limit.",
-            timestamp: new Date().toISOString(),
-            isError: true,
-          },
-        ]);
+      if (
+        !trimmedInput ||
+        isRequesting
+      ) {
         return;
       }
 
-      const useAgent = shouldUseAgent(trimmedInput);
+      if (
+        trimmedInput.length >
+        4000
+      ) {
+        const errorMessage =
+          "⚠️ Your message exceeds the 4000 character limit.";
+
+        setMessages((previous) => [
+          ...previous,
+          {
+            id:
+              "error-" +
+              Date.now(),
+            role: "assistant",
+            displayContent:
+              errorMessage,
+            fullContent:
+              errorMessage,
+            timestamp:
+              new Date().toISOString(),
+            isError: true,
+          },
+        ]);
+
+        return;
+      }
+
+      const useAgent =
+        shouldUseAgent(
+          trimmedInput
+        );
 
       const userMessage = {
-        id: "user-" + Date.now(),
+        id:
+          "user-" +
+          Date.now() +
+          "-" +
+          Math.random()
+            .toString(36)
+            .slice(2),
         role: "user",
-        displayContent: trimmedInput,
-        fullContent: trimmedInput,
-        timestamp: new Date().toISOString(),
+        displayContent:
+          trimmedInput,
+        fullContent:
+          trimmedInput,
+        timestamp:
+          new Date().toISOString(),
       };
 
-      const updatedMessages = [...messages, userMessage];
-      setMessages(updatedMessages);
+      const updatedMessages = [
+        ...messages,
+        userMessage,
+      ];
+
+      setMessages(
+        updatedMessages
+      );
+
       setInput("");
       setIntents([]);
-      if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-      const apiMessages = updatedMessages
-        .filter(
-          (m) =>
-            (m.role === "user" || m.role === "assistant") &&
-            typeof m.fullContent === "string"
-        )
-        .map(({ role, fullContent: c }) => ({
-          role,
-          content: c.slice(0, 4000),
-        }));
-
-      await runRequest(apiMessages, { useAgent });
-    },
-    [input, isRequesting, messages, runRequest]
-  );
-
-  const handleStop = useCallback(() => {
-    if (requestAbortRef.current) {
-      requestAbortRef.current.abort();
-      requestAbortRef.current = null;
-    }
-    setIsRequesting(false);
-    setIsAgentMode(false);
-  }, []);
-
-  const handleKeyDown = useCallback(
-    (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        sendMessage();
+      if (textareaRef.current) {
+        textareaRef.current.style.height =
+          "auto";
       }
+
+      const apiMessages =
+        updatedMessages
+          .filter(
+            (message) =>
+              (
+                message.role ===
+                  "user" ||
+                message.role ===
+                  "assistant"
+              ) &&
+              typeof message.fullContent ===
+                "string" &&
+              !message.isError
+          )
+          .map((message) => ({
+            role: message.role,
+            content:
+              message.fullContent.slice(
+                0,
+                4000
+              ),
+          }));
+
+      await runRequest(
+        apiMessages,
+        { useAgent }
+      );
     },
-    [sendMessage]
+    [
+      input,
+      isRequesting,
+      messages,
+      runRequest,
+    ]
   );
 
-  const clearChat = useCallback(async () => {
-    if (requestAbortRef.current) requestAbortRef.current.abort();
-    requestAbortRef.current = null;
-    setIsRequesting(false);
-    setIsAgentMode(false);
+  /* ------------------------------------------------------------------------
+     STOP
+     ------------------------------------------------------------------------ */
 
-    if (conversationId) {
-      try {
-        await fetch(`${API_URL}/api/clear-conversation`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ conversationId }),
-        });
-      } catch (error) {
-        console.error("Failed to clear conversation:", error);
+  const handleStop =
+    useCallback(() => {
+      if (
+        requestAbortRef.current
+      ) {
+        requestAbortRef.current.abort();
+        requestAbortRef.current =
+          null;
       }
-    }
 
-    setConversationId(null);
-    setIntents([]);
-    setMessages([buildGreetingMessage(CLEARED_GREETING)]);
-  }, [conversationId]);
+      setIsRequesting(false);
+      setIsAgentMode(false);
+    }, []);
 
-  const handleSuggestionClick = useCallback(
-    (suggestion) => {
-      sendMessage(suggestion);
-    },
-    [sendMessage]
-  );
+  /* ------------------------------------------------------------------------
+     KEYBOARD
+     ------------------------------------------------------------------------ */
 
-  const handleCopyMessage = useCallback(async (content, index) => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopiedMessageId(index);
-      setTimeout(() => setCopiedMessageId(null), 2000);
-    } catch (error) {
-      console.error("Failed to copy:", error);
-    }
-  }, []);
+  const handleKeyDown =
+    useCallback(
+      (event) => {
+        if (
+          event.key === "Enter" &&
+          !event.shiftKey
+        ) {
+          event.preventDefault();
+          sendMessage();
+        }
+      },
+      [sendMessage]
+    );
 
-  const handleRetry = useCallback(() => {
-    if (requestAbortRef.current) requestAbortRef.current.abort();
-    requestAbortRef.current = null;
-    setIsRequesting(false);
-    setIsAgentMode(false);
+  /* ------------------------------------------------------------------------
+     CLEAR CHAT
+     ------------------------------------------------------------------------ */
 
-    const lastUserIndex = [...messages]
-      .reverse()
-      .findIndex((m) => m.role === "user");
-    if (lastUserIndex === -1) return;
+  const clearChat =
+    useCallback(async () => {
+      if (
+        requestAbortRef.current
+      ) {
+        requestAbortRef.current.abort();
+      }
 
-    const actualIndex = messages.length - 1 - lastUserIndex;
-    const lastUserMessage = messages[actualIndex];
+      requestAbortRef.current =
+        null;
 
-    const historyBeforeUser = messages.slice(0, actualIndex);
-    const userMsg = { ...lastUserMessage };
-    const cleanHistory = historyBeforeUser.filter((m) => !m.isError);
-    const newMessages = [...cleanHistory, userMsg];
-    setMessages(newMessages);
+      setIsRequesting(false);
+      setIsAgentMode(false);
 
-    const apiMessages = newMessages
-      .filter(
-        (m) =>
-          (m.role === "user" || m.role === "assistant") &&
-          typeof m.fullContent === "string"
-      )
-      .map(({ role, fullContent: c }) => ({
-        role,
-        content: c.slice(0, 4000),
-      }));
+      const currentConversationId =
+        conversationId;
 
-    const useAgent = shouldUseAgent(lastUserMessage.fullContent || "");
-    runRequest(apiMessages, { useAgent });
-  }, [messages, runRequest]);
+      if (currentConversationId) {
+        try {
+          await fetch(
+            `${API_URL}/api/clear-conversation`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                conversationId:
+                  currentConversationId,
+              }),
+            }
+          );
+        } catch (error) {
+          console.error(
+            "Failed to clear conversation:",
+            error
+          );
+        }
+      }
+
+      setConversationId(null);
+      setIntents([]);
+      setInput("");
+
+      setMessages([
+        buildGreetingMessage(
+          CLEARED_GREETING
+        ),
+      ]);
+
+      requestAnimationFrame(() => {
+        const container =
+          messagesContainerRef.current;
+
+        if (container) {
+          container.scrollTop = 0;
+        }
+      });
+    }, [conversationId]);
+
+  /* ------------------------------------------------------------------------
+     SUGGESTION CLICK
+     ------------------------------------------------------------------------ */
+
+  const handleSuggestionClick =
+    useCallback(
+      (suggestion) => {
+        sendMessage(suggestion);
+      },
+      [sendMessage]
+    );
+
+  /* ------------------------------------------------------------------------
+     COPY MESSAGE
+     ------------------------------------------------------------------------ */
+
+  const handleCopyMessage =
+    useCallback(
+      async (content, index) => {
+        try {
+          await navigator.clipboard.writeText(
+            content
+          );
+
+          setCopiedMessageId(index);
+
+          setTimeout(
+            () =>
+              setCopiedMessageId(
+                null
+              ),
+            2000
+          );
+        } catch (error) {
+          console.error(
+            "Failed to copy:",
+            error
+          );
+        }
+      },
+      []
+    );
+
+  /* ------------------------------------------------------------------------
+     RETRY
+     ------------------------------------------------------------------------ */
+
+  const handleRetry =
+    useCallback(() => {
+      if (
+        requestAbortRef.current
+      ) {
+        requestAbortRef.current.abort();
+      }
+
+      requestAbortRef.current =
+        null;
+
+      setIsRequesting(false);
+      setIsAgentMode(false);
+
+      const lastUserIndex =
+        [...messages]
+          .reverse()
+          .findIndex(
+            (message) =>
+              message.role ===
+              "user"
+          );
+
+      if (
+        lastUserIndex === -1
+      ) {
+        return;
+      }
+
+      const actualIndex =
+        messages.length -
+        1 -
+        lastUserIndex;
+
+      const lastUserMessage =
+        messages[actualIndex];
+
+      const historyBeforeUser =
+        messages.slice(
+          0,
+          actualIndex
+        );
+
+      const cleanHistory =
+        historyBeforeUser.filter(
+          (message) =>
+            !message.isError
+        );
+
+      const newMessages = [
+        ...cleanHistory,
+        lastUserMessage,
+      ];
+
+      setMessages(
+        newMessages
+      );
+
+      const apiMessages =
+        newMessages
+          .filter(
+            (message) =>
+              (
+                message.role ===
+                  "user" ||
+                message.role ===
+                  "assistant"
+              ) &&
+              typeof message.fullContent ===
+                "string" &&
+              !message.isError
+          )
+          .map((message) => ({
+            role: message.role,
+            content:
+              message.fullContent.slice(
+                0,
+                4000
+              ),
+          }));
+
+      const useAgent =
+        shouldUseAgent(
+          lastUserMessage.fullContent ||
+            ""
+        );
+
+      runRequest(
+        apiMessages,
+        { useAgent }
+      );
+    }, [messages, runRequest]);
+
+  /* ------------------------------------------------------------------------
+     RENDER
+     ------------------------------------------------------------------------ */
 
   return (
     <div
-      className={`app ${darkMode ? "dark" : ""}`}
-      style={{ height: `${viewportHeight}px` }}
+      className={`app ${
+        darkMode ? "dark" : ""
+      }`}
+      style={{
+        height: `${viewportHeight}px`,
+      }}
     >
+      {/* HEADER */}
+
       <header className="header">
         <div className="header-content">
           <div className="header-brand">
             <div className="header-icon-container">
-              <Shield size={18} strokeWidth={2.25} />
+              <Shield
+                size={18}
+                strokeWidth={2.25}
+              />
             </div>
+
             <div className="header-text">
               <div className="header-title-row">
                 <h1 className="header-title">
                   <span className="header-title-gradient">
-                    Lakewest AI Security Assistant
+                    Lakewest AI Security
+                    Assistant
                   </span>
                 </h1>
+
                 <span className="header-status">
                   <span className="status-dot" />
                   Ready
                 </span>
               </div>
-              <p className="header-subtitle">Security &amp; Safety Copilot</p>
+
+              <p className="header-subtitle">
+                Security &amp; Safety
+                Copilot
+              </p>
             </div>
           </div>
 
           <div className="header-actions">
             <button
+              type="button"
               className="icon-button"
-              onClick={() => setDarkMode(!darkMode)}
+              onClick={() =>
+                setDarkMode(
+                  (value) => !value
+                )
+              }
               aria-label="Toggle theme"
               title="Toggle theme"
             >
-              {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+              {darkMode ? (
+                <Sun size={18} />
+              ) : (
+                <Moon size={18} />
+              )}
             </button>
           </div>
         </div>
       </header>
 
+      {/* INTENTS */}
+
       {intents.length > 0 && (
         <div className="intent-badges">
-          <span className="intent-badges-label">Security context:</span>
+          <span className="intent-badges-label">
+            Security context:
+          </span>
+
           {intents.map((intent) => (
-            <span key={intent} className="intent-badge">
-              {intent.replace(/_/g, " ")}
+            <span
+              key={intent}
+              className="intent-badge"
+            >
+              {String(intent)
+                .replace(/_/g, " ")}
             </span>
           ))}
         </div>
       )}
 
+      {/* CHAT */}
+
       <main className="chat-container">
         <div
-          className={`messages ${isEmptyState ? "messages--empty" : ""}`}
+          className={`messages ${
+            isEmptyState
+              ? "messages--empty"
+              : ""
+          }`}
           ref={messagesContainerRef}
           onScroll={handleScroll}
           role="log"
@@ -1004,55 +1844,95 @@ function App() {
           {isEmptyState ? (
             <div className="empty-state">
               <div className="empty-state-icon">
-                <Shield size={22} strokeWidth={2} />
+                <Shield
+                  size={22}
+                  strokeWidth={2}
+                />
               </div>
-              <p className="empty-state-eyebrow">AI Security Assistant</p>
+
+              <p className="empty-state-eyebrow">
+                AI Security Assistant
+              </p>
+
               <h2 className="empty-state-title">
-                How can I help you stay secure?
+                How can I help you stay
+                secure?
               </h2>
+
               <p className="empty-state-description">
-                Ask about threats, security, privacy, incidents, systems,
-                applications, or everyday safety.
+                Ask about threats,
+                security, privacy,
+                incidents, systems,
+                applications, or
+                everyday safety.
               </p>
 
               <div className="suggestion-grid">
-                {SUGGESTION_CARDS.map((card) => {
-                  const Icon = card.icon;
-                  return (
-                    <button
-                      key={card.title}
-                      type="button"
-                      className="suggestion-card"
-                      onClick={() => handleSuggestionClick(card.prompt)}
-                    >
-                      <span className="suggestion-card-icon">
-                        <Icon size={18} />
-                      </span>
-                      <span className="suggestion-card-body">
-                        <span className="suggestion-card-title">
-                          {card.title}
+                {SUGGESTION_CARDS.map(
+                  (card) => {
+                    const Icon =
+                      card.icon;
+
+                    return (
+                      <button
+                        key={
+                          card.title
+                        }
+                        type="button"
+                        className="suggestion-card"
+                        onClick={() =>
+                          handleSuggestionClick(
+                            card.prompt
+                          )
+                        }
+                      >
+                        <span className="suggestion-card-icon">
+                          <Icon
+                            size={18}
+                          />
                         </span>
-                        <span className="suggestion-card-desc">
-                          {card.description}
+
+                        <span className="suggestion-card-body">
+                          <span className="suggestion-card-title">
+                            {
+                              card.title
+                            }
+                          </span>
+
+                          <span className="suggestion-card-desc">
+                            {
+                              card.description
+                            }
+                          </span>
                         </span>
-                      </span>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  }
+                )}
               </div>
             </div>
           ) : (
-            messages.map((message, index) => (
-              <MessageItem
-                key={message.id}
-                message={message}
-                index={index}
-                copiedMessageId={copiedMessageId}
-                onCopy={handleCopyMessage}
-                onRetry={handleRetry}
-              />
-            ))
+            messages.map(
+              (message, index) => (
+                <MessageItem
+                  key={message.id}
+                  message={message}
+                  index={index}
+                  copiedMessageId={
+                    copiedMessageId
+                  }
+                  onCopy={
+                    handleCopyMessage
+                  }
+                  onRetry={
+                    handleRetry
+                  }
+                />
+              )
+            )
           )}
+
+          {/* LOADING / INVESTIGATION */}
 
           {isRequesting && (
             <div className="message assistant loading">
@@ -1062,7 +1942,11 @@ function App() {
                   className="message-author-icon"
                   aria-hidden="true"
                 />
-                <span className="message-author">AI</span>
+
+                <span className="message-author">
+                  AI
+                </span>
+
                 {isAgentMode && (
                   <span className="message-tool-badge">
                     <Wrench size={11} />
@@ -1070,29 +1954,40 @@ function App() {
                   </span>
                 )}
               </div>
+
               <div className="message-content">
                 <div className="thinking-indicator">
                   <div className="thinking-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <span />
+                    <span />
+                    <span />
                   </div>
-                  <span className="thinking-text">{thinkingWord}</span>
+
+                  <span className="thinking-text">
+                    {thinkingWord}
+                  </span>
                 </div>
               </div>
             </div>
           )}
         </div>
 
+        {/* SCROLL BUTTON */}
+
         {showScrollButton && (
           <button
+            type="button"
             className="scroll-button"
-            onClick={scrollToBottom}
+            onClick={
+              scrollToBottom
+            }
             aria-label="Scroll to bottom"
           >
             <ArrowDown size={18} />
           </button>
         )}
+
+        {/* COMPOSER */}
 
         <div className="composer">
           <div className="composer-inner">
@@ -1100,7 +1995,9 @@ function App() {
               <button
                 type="button"
                 className="new-chat-inline-button"
-                onClick={clearChat}
+                onClick={
+                  clearChat
+                }
                 aria-label="Start new chat"
                 title="Start new chat"
               >
@@ -1110,36 +2007,56 @@ function App() {
               <textarea
                 ref={textareaRef}
                 value={input}
-                onChange={(event) => setInput(event.target.value)}
-                onKeyDown={handleKeyDown}
+                onChange={(event) =>
+                  setInput(
+                    event.target.value
+                  )
+                }
+                onKeyDown={
+                  handleKeyDown
+                }
                 placeholder="Ask about security or safety..."
-                rows="1"
-                disabled={isRequesting}
+                rows={1}
+                disabled={
+                  isRequesting
+                }
                 aria-label="Message input"
                 maxLength={4000}
               />
 
               {isRequesting ? (
                 <button
+                  type="button"
                   className="stop-button"
-                  onClick={handleStop}
+                  onClick={
+                    handleStop
+                  }
                   aria-label="Stop generation"
                 >
-                  <Square size={18} />
+                  <Square
+                    size={18}
+                  />
                 </button>
               ) : (
                 <button
+                  type="button"
                   className="send-button"
-                  onClick={() => sendMessage()}
-                  disabled={!input.trim()}
+                  onClick={() =>
+                    sendMessage()
+                  }
+                  disabled={
+                    !input.trim()
+                  }
                   aria-label="Send message"
                 >
                   <Send size={18} />
                 </button>
               )}
             </div>
+
             <p className="composer-hint">
-              Enter to send · Shift + Enter for newline
+              Enter to send · Shift +
+              Enter for newline
             </p>
           </div>
         </div>
