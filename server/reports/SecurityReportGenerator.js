@@ -1,32 +1,17 @@
+"use strict";
+
 const PDFDocument = require("pdfkit");
 const crypto = require("crypto");
+const { deriveFinalInvestigationAssessment } = require("../agent/SecurityAssessment");
 
-/**
- * Lakewest AI Security Assistant
- * Concise SOC Security Investigation Brief
- *
- * PRESENTATION LAYER ONLY.
- *
- * SecurityAssessment.js / Investigation.js remain the authoritative
- * source of security conclusions.
- *
- * Design principles (UNCHANGED):
- *   - External reputation != confirmed compromise
- *   - External intelligence != internal telemetry
- *   - Never infer internal telemetry from external provider fields
- *   - Keep technical evidence readable for non-experts
- *
- * UX principles (NEW):
- *   - 1–2 pages normally
- *   - Target, threat, risk, actions visible immediately
- *   - No repeated conclusions
- *   - Compact cards, subtle severity accents
- *   - Humanized provider evidence, never raw JSON
- */
-
-// ============================================================================
-// DESIGN SYSTEM
-// ============================================================================
+const PAGE = {
+  width: 595.28,
+  height: 841.89,
+  margin: 42,
+  contentWidth: 511.28,
+  contentBottom: 805,
+  footerY: 808,
+};
 
 const COLORS = {
   navy: "#0F172A",
@@ -37,219 +22,112 @@ const COLORS = {
   borderStrong: "#CBD5E1",
   background: "#F8FAFC",
   white: "#FFFFFF",
-
   blue: "#2563EB",
   blueLight: "#EFF6FF",
   blueBorder: "#BFDBFE",
-
   green: "#16A34A",
   greenLight: "#F0FDF4",
   greenBorder: "#BBF7D0",
-
   amber: "#D97706",
   amberLight: "#FFFBEB",
   amberBorder: "#FDE68A",
-
   red: "#DC2626",
   redLight: "#FEF2F2",
   redBorder: "#FECACA",
-
-  purple: "#7C3AED",
-  purpleLight: "#F5F3FF",
-
-  cyan: "#0891B2",
-  cyanLight: "#ECFEFF",
 };
 
-const PAGE = {
-  width: 595.28,
-  height: 841.89,
-  margin: 42,
+const SPACING = {
+  section: 9,
+  cardGap: 8,
+  cardPad: 10,
 };
 
-const CONTENT = {
-  width: PAGE.width - PAGE.margin * 2,
-  bottom: PAGE.height - 42,
-  footerY: PAGE.height - 30,
+const PROVIDER_LABELS = {
+  virustotal: "VirusTotal",
+  abuseipdb: "AbuseIPDB",
+  urlscan: "URLScan",
+  shodan: "Shodan",
+  ipinfo: "IPinfo",
+  censys: "Censys",
+  securitytrails: "SecurityTrails",
+  mozillasecurityobservatory: "Mozilla Observatory",
+  mozillaobservatory: "Mozilla Observatory",
+  viewdns: "ViewDNS",
+  hibp: "Have I Been Pwned",
+  urlhaus: "URLhaus",
+  threatfox: "ThreatFox",
+  phishingdatabase: "Phishing.Database",
+  phishtank: "PhishTank",
+  googlewebrisk: "Google Web Risk",
 };
 
-// Compact spacing tokens
-const SPACE = {
-  section: 13,
-  cardGap: 9,
-  cardPad: 11,
-  rowGap: 5,
-  paraGap: 4,
-};
-
-// ============================================================================
-// GENERAL HELPERS (UNCHANGED)
-// ============================================================================
-
-function normalizeLevel(value) {
-  const v = String(value ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\_-]+/g, " ");
-
-  if (!v) return "unknown";
-
-  if (v === "critical" || v.includes("critical")) {
-    return "critical";
-  }
-
-  if (
-    v === "high" ||
-    v === "elevated" ||
-    v.includes("high") ||
-    v.includes("elevated")
-  ) {
-    return "high";
-  }
-
-  if (
-    v === "moderate" ||
-    v === "medium" ||
-    v.includes("moderate") ||
-    v.includes("medium")
-  ) {
-    return "moderate";
-  }
-
-  if (v === "low" || v.includes("low")) {
-    return "low";
-  }
-
-  return "unknown";
-}
-
-function displayLevel(value) {
-  const normalized = normalizeLevel(value);
-
-  switch (normalized) {
-    case "critical":
-      return "CRITICAL";
-    case "high":
-      return "HIGH";
-    case "moderate":
-      return "MODERATE";
-    case "low":
-      return "LOW";
-    default:
-      return "UNKNOWN";
-  }
-}
+const TERMINAL_NON_EVIDENCE_STATUSES = new Set([
+  "timeout",
+  "unauthorized",
+  "error",
+  "failed",
+  "unavailable",
+  "not_configured",
+  "not configured",
+  "skipped",
+  "not_required",
+  "not required",
+]);
 
 function firstDefined(...values) {
-  for (const value of values) {
-    if (value !== undefined && value !== null && value !== "") {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function formatDate(value) {
-  const date = value ? new Date(value) : new Date();
-
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toLocaleString();
-  }
-
-  return date.toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDateShort(value) {
-  const date = value ? new Date(value) : new Date();
-
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toLocaleDateString();
-  }
-
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function formatNumber(value) {
-  const number = Number(value);
-
-  if (!Number.isFinite(number)) {
-    return String(value ?? "Unknown");
-  }
-
-  return number.toLocaleString("en-US");
+  return values.find((value) => value !== undefined && value !== null && value !== "");
 }
 
 function safeString(value, fallback = "") {
-  if (value === undefined || value === null || value === "") {
-    return fallback;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "string") return value.replace(/—/g, "-").trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
 }
 
-function capitalize(value) {
-  const text = safeString(value, "");
-
+function truncate(value, maxLength = 100) {
+  const text = safeString(value);
   if (!text) return "";
-
-  return text.charAt(0).toUpperCase() + text.slice(1);
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
-function generateReportId() {
-  return crypto.randomUUID();
+function dedupe(items) {
+  return [...new Set(items.filter(Boolean))];
 }
 
-function truncate(text, maxLength = 250) {
-  const value = String(text ?? "");
-
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  return `${value.slice(0, maxLength - 3)}...`;
-}
-
-function humanizeField(value) {
-  return String(value ?? "")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
+function humanize(value) {
+  return safeString(value)
+    .replace(/[\s_-]+/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-// ============================================================================
-// INVESTIGATION EXTRACTION (UNCHANGED)
-// ============================================================================
+function normalizeProviderName(source) {
+  const raw = safeString(source?.provider || source?.name || source?.source).toLowerCase();
+  return raw.replace(/[\s_.-]+/g, "");
+}
 
-function extractInvestigation({ investigation, metadata }) {
-  if (investigation && typeof investigation === "object") {
-    return investigation;
-  }
+function providerLabel(source) {
+  const normalized = normalizeProviderName(source);
+  return PROVIDER_LABELS[normalized] || humanize(source?.provider || source?.name || source?.source || "Security Source");
+}
 
-  if (metadata?.investigation && typeof metadata.investigation === "object") {
-    return metadata.investigation;
-  }
+function sourceStatus(source) {
+  return safeString(source?.status, "unknown").toLowerCase();
+}
 
-  return null;
+function sourceIsAvailable(source) {
+  return ["success", "partial"].includes(sourceStatus(source));
+}
+
+function sourceHasCanonicalMeaningful(source) {
+  return source?.quality?.meaningful === true;
+}
+
+function sourceCanShowEvidence(source) {
+  if (!sourceIsAvailable(source)) return false;
+  const findings = getSourceFindings(source);
+  return findings.some((finding) => finding && typeof finding === "object" && Object.keys(finding).length > 0);
 }
 
 function getSources(investigation) {
@@ -260,1634 +138,891 @@ function getFindings(investigation) {
   return Array.isArray(investigation?.findings) ? investigation.findings : [];
 }
 
-function getLimitations(investigation) {
-  return Array.isArray(investigation?.limitations) ? investigation.limitations : [];
+function getCorrelations(investigation) {
+  return Array.isArray(investigation?.correlations) ? investigation.correlations : [];
+}
+
+function getConflicts(investigation) {
+  return Array.isArray(investigation?.conflicts) ? investigation.conflicts : [];
+}
+
+function getSourceFindings(source) {
+  if (Array.isArray(source?.findings)) return source.findings;
+  if (source?.findings && typeof source.findings === "object") return [source.findings];
+  if (source?.data && typeof source.data === "object") return [source.data];
+  return [];
+}
+
+function firstFinding(source) {
+  return getSourceFindings(source)[0] || {};
+}
+
+function findSource(investigation, provider) {
+  const normalized = String(provider).toLowerCase().replace(/[\s_.-]+/g, "");
+  return getSources(investigation).find((source) => normalizeProviderName(source) === normalized);
+}
+
+function resolveTargetValue(value) {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object") return firstDefined(safeString(value.value), safeString(value.target), safeString(value.name));
+  return undefined;
 }
 
 function getTarget({ investigation, metadata, target }) {
   return firstDefined(
-    target,
-    investigation?.target,
-    metadata?.target,
+    resolveTargetValue(target),
+    resolveTargetValue(investigation?.target),
+    resolveTargetValue(metadata?.target),
     "Unknown target"
   );
 }
 
 function detectTargetType({ investigation, metadata, target }) {
-  return firstDefined(
-    investigation?.targetType,
-    metadata?.targetType,
-    detectTargetTypeFromValue(target),
-    "indicator"
-  );
-}
-
-function detectTargetTypeFromValue(value) {
-  const text = String(value || "").trim();
-
-  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(text)) {
-    return "ip";
-  }
-
-  if (text.includes("://") || /^www\./i.test(text)) {
-    return "url";
-  }
-
-  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(text)) {
-    return "email";
-  }
-
+  const explicit = firstDefined(investigation?.targetType, metadata?.targetType, investigation?.target?.type);
+  if (explicit) return safeString(explicit).toLowerCase();
+  const value = resolveTargetValue(target || investigation?.target || metadata?.target);
+  if (!value) return "indicator";
+  if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(value)) return "ip";
+  if (value.includes("://") || /^www\./i.test(value)) return "url";
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) return "email";
   return "indicator";
 }
 
-// ============================================================================
-// PROVIDER HELPERS (UNCHANGED)
-// ============================================================================
-
-function normalizeProviderName(source) {
-  return String(
-    firstDefined(source?.provider, source?.providerName, source?.name, "")
-  )
-    .trim()
-    .toLowerCase()
-    .replace(/[\s\_-]+/g, "");
+function normalizeLevel(value) {
+  const normalized = safeString(value).toLowerCase().replace(/[_-]+/g, " ");
+  if (normalized === "critical") return "critical";
+  if (normalized === "elevated") return "elevated";
+  if (normalized === "high") return "high";
+  if (normalized === "moderate" || normalized === "medium") return "moderate";
+  if (normalized === "low") return "low";
+  return "unknown";
 }
 
-function providerLabel(source) {
-  const provider = normalizeProviderName(source);
-
-  const labels = {
-    virustotal: "VirusTotal",
-    abuseipdb: "AbuseIPDB",
-    urlscan: "URLScan",
-    shodan: "Shodan",
-    ipinfo: "IPinfo",
-    censys: "Censys",
-    securitytrails: "SecurityTrails",
-    mozillasecurityobservatory: "Mozilla Observatory",
-    mozillaobservatory: "Mozilla Observatory",
-    viewdns: "ViewDNS",
-    hibp: "Have I Been Pwned",
-  };
-
-  return (
-    labels[provider] ||
-    capitalize(
-      firstDefined(
-        source?.provider,
-        source?.providerName,
-        source?.name,
-        "Unknown source"
-      )
-    )
-  );
-}
-
-function getSourceFindings(source) {
-  if (source?.findings && typeof source.findings === "object") {
-    return source.findings;
+function levelLabel(level) {
+  switch (normalizeLevel(level)) {
+    case "critical": return "Critical";
+    case "elevated": return "Elevated";
+    case "high": return "High";
+    case "moderate": return "Moderate";
+    case "low": return "Low";
+    default: return "Unknown";
   }
-  return {};
 }
 
-function sourceIsAvailable(source) {
-  return (
-    source &&
-    ["success", "partial"].includes(String(source.status || "").toLowerCase())
-  );
+function levelStyle(level) {
+  switch (normalizeLevel(level)) {
+    case "critical":
+    case "elevated":
+    case "high":
+      return { color: COLORS.red, background: COLORS.redLight, border: COLORS.redBorder };
+    case "moderate":
+      return { color: COLORS.amber, background: COLORS.amberLight, border: COLORS.amberBorder };
+    case "low":
+      return { color: COLORS.green, background: COLORS.greenLight, border: COLORS.greenBorder };
+    default:
+      return { color: COLORS.slate, background: COLORS.background, border: COLORS.borderStrong };
+  }
 }
 
-function sourceIsMeaningful(source) {
-  if (!sourceIsAvailable(source)) {
-    return false;
+function normalizeTimestamp(value) {
+  if (value === undefined || value === null || value === "") return null;
+  let numeric = null;
+  if (typeof value === "number" && Number.isFinite(value)) numeric = value;
+  else if (typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value.trim())) numeric = Number(value.trim());
+
+  if (numeric !== null) {
+    const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  if (source?.quality && typeof source.quality.meaningful === "boolean") {
-    return source.quality.meaningful;
-  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
 
-  const findings = getSourceFindings(source);
-
-  return Object.keys(findings).some((key) => {
-    const value = findings[key];
-
-    if (value === undefined || value === null || value === "") {
-      return false;
-    }
-
-    if (Array.isArray(value)) {
-      return value.length > 0;
-    }
-
-    if (typeof value === "object") {
-      return Object.keys(value).length > 0;
-    }
-
-    return true;
+function formatDate(value) {
+  const date = normalizeTimestamp(value);
+  if (!date) return "";
+  return date.toLocaleString("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-function meaningfulSources(investigation) {
-  return getSources(investigation).filter(sourceIsMeaningful);
+function formatDateOnly(value) {
+  const date = normalizeTimestamp(value);
+  if (!date) return "";
+  return date.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
 }
 
-// ============================================================================
-// SECURITY ASSESSMENT (UNCHANGED)
-// ============================================================================
+function mapCountry(country) {
+  const countries = {
+    DE: "Germany", US: "United States", GB: "United Kingdom", NG: "Nigeria",
+    FR: "France", NL: "Netherlands", CA: "Canada", RU: "Russia", CN: "China",
+  };
+  return countries[safeString(country).toUpperCase()] || safeString(country);
+}
+
+function getCanonicalAssessment(investigation) {
+  return deriveFinalInvestigationAssessment(investigation || {});
+}
 
 function deriveExternalThreat(investigation) {
-  const explicit = firstDefined(
-    investigation?.risk?.externalThreat,
-    investigation?.risk?.external_threat
-  );
-  return normalizeLevel(explicit);
+  return normalizeLevel(getCanonicalAssessment(investigation).externalThreat);
 }
 
 function deriveEnvironmentalRisk(investigation) {
-  const explicit = firstDefined(
-    investigation?.risk?.environmentalRisk,
-    investigation?.risk?.environmental_risk
-  );
-  return normalizeLevel(explicit);
-}
-
-function deriveCoverage(investigation) {
-  const explicit = firstDefined(
-    investigation?.risk?.evidenceCoverage,
-    investigation?.risk?.evidence_coverage
-  );
-
-  if (explicit) {
-    return String(explicit).toLowerCase();
-  }
-
-  const meaningful = meaningfulSources(investigation).length;
-
-  if (meaningful === 0) return "none";
-  if (meaningful <= 2) return "limited";
-  return "broad";
-}
-
-function deriveExternalConfidence(investigation) {
-  return normalizeLevel(
-    firstDefined(
-      investigation?.confidence?.externalIntelligence,
-      investigation?.confidence?.external_intelligence
-    )
-  );
-}
-
-function deriveEnvironmentalConfidence(investigation) {
-  return normalizeLevel(
-    firstDefined(
-      investigation?.confidence?.environmentalAssessment,
-      investigation?.confidence?.environmental_assessment
-    )
-  );
+  return normalizeLevel(getCanonicalAssessment(investigation).environmentalRisk);
 }
 
 function deriveOverallConfidence(investigation) {
-  return normalizeLevel(investigation?.confidence?.level);
+  return getCanonicalAssessment(investigation).overallConfidence || "unknown";
 }
 
-// ============================================================================
-// INTERNAL TELEMETRY (UNCHANGED)
-// ============================================================================
-
-function hasExplicitInternalTelemetry(investigation) {
-  const explicitValues = [
-    investigation?.internalTelemetry,
-    investigation?.hasInternalTelemetry,
-    investigation?.environmentalTelemetry,
-    investigation?.telemetryProvided,
-    investigation?.assessment?.internalTelemetry,
-    investigation?.assessment?.hasInternalTelemetry,
-  ];
-
-  for (const value of explicitValues) {
-    if (typeof value === "boolean") {
-      return value;
-    }
-
-    if (
-      typeof value === "string" &&
-      /^(true|yes|available|provided)$/i.test(value.trim())
-    ) {
-      return true;
-    }
-  }
-
-  return false;
+function deriveRiskScore(investigation) {
+  return getCanonicalAssessment(investigation).riskScore;
 }
 
-function detectInternalTelemetry(investigation) {
-  if (hasExplicitInternalTelemetry(investigation)) {
-    return true;
-  }
-
-  const environmentalEvidence = getFindings(investigation).filter((finding) => {
-    const type = String(finding?.type || "").toLowerCase();
-
-    return (
-      type.includes("environment") ||
-      type.includes("endpoint") ||
-      type.includes("authentication") ||
-      type.includes("firewall") ||
-      type.includes("network_flow") ||
-      type.includes("networkflow") ||
-      type.includes("packet") ||
-      type.includes("internal_telemetry")
-    );
-  });
-
-  return environmentalEvidence.length > 0;
+function deriveConfidenceScore(investigation) {
+  return getCanonicalAssessment(investigation).confidenceScore;
 }
 
-// ============================================================================
-// PROVIDER EVIDENCE (UNCHANGED)
-// ============================================================================
-
-function findSource(investigation, providerName) {
-  const wanted = String(providerName)
-    .toLowerCase()
-    .replace(/[\s\_-]+/g, "");
-
-  return getSources(investigation).find(
-    (source) => normalizeProviderName(source) === wanted
-  );
+function deriveConfidenceLevel(investigation) {
+  return getCanonicalAssessment(investigation).confidenceLevel || "unknown";
 }
 
-function getVirusTotalEvidence(investigation) {
-  const source = findSource(investigation, "virustotal");
-  if (!source) return null;
-
-  const findings = getSourceFindings(source);
-
+function deriveCoverage(investigation) {
+  const assessment = getCanonicalAssessment(investigation);
+  const [meaningful, total] = String(assessment.meaningfulCoverage || "0/0").split("/").map(Number);
   return {
-    source,
-    malicious: findings.malicious,
-    suspicious: findings.suspicious,
-    harmless: findings.harmless,
-    undetected: findings.undetected,
-    reputation: findings.reputation,
-    lastAnalysisDate: findings.lastAnalysisDate,
+    meaningful: Number.isFinite(meaningful) ? meaningful : 0,
+    total: Number.isFinite(total) ? total : 0,
+    consulted: assessment.consultedSourceCount || 0,
+    label: assessment.evidenceCoverage || "none",
   };
 }
-
-function getAbuseIPDBEvidence(investigation) {
-  const source = findSource(investigation, "abuseipdb");
-  if (!source) return null;
-
-  const findings = getSourceFindings(source);
-
-  return {
-    source,
-    abuseConfidenceScore: findings.abuseConfidenceScore,
-    totalReports: findings.totalReports,
-    lastReportedAt: findings.lastReportedAt,
-    countryCode: findings.countryCode,
-    isp: findings.isp,
-  };
-}
-
-function getCensysEvidence(investigation) {
-  const source = findSource(investigation, "censys");
-  if (!source) return null;
-
-  const findings = getSourceFindings(source);
-
-  return {
-    source,
-    isTor: findings.isTor ?? findings.tor ?? findings.isTorExit,
-    isProxy: findings.isProxy ?? findings.proxy,
-    services: findings.services,
-    autonomousSystem: findings.autonomousSystem,
-    location: findings.location,
-    lastUpdated: findings.lastUpdated,
-  };
-}
-
-function getIPinfoEvidence(investigation) {
-  const source = findSource(investigation, "ipinfo");
-  if (!source) return null;
-
-  const findings = getSourceFindings(source);
-
-  return {
-    source,
-    country: findings.country,
-    region: findings.region,
-    city: findings.city,
-    hostname: findings.hostname,
-    org: findings.org,
-    loc: findings.loc,
-    timezone: findings.timezone,
-  };
-}
-
-// ============================================================================
-// HUMAN-READABLE TECHNICAL FORMATTING
-// ============================================================================
-
-function formatCensysServices(services) {
-  if (!Array.isArray(services)) return [];
-
-  const results = [];
-
-  for (const service of services) {
-    const port = service?.port;
-
-    const software = Array.isArray(service?.software) ? service.software : [];
-
-    const labels = Array.isArray(service?.labels)
-      ? service.labels.map((item) => String(item?.value || "").toUpperCase())
-      : [];
-
-    const softwareText = software
-      .map((item) => {
-        const vendor = item?.vendor || "";
-        const product = item?.product || "";
-        return `${vendor} ${product}`.trim();
-      })
-      .filter(Boolean)
-      .join(", ");
-
-    const isTor =
-      labels.includes("PROXY_SERVER") || /tor/i.test(softwareText);
-
-    if (isTor && port) {
-      results.push({
-        port,
-        label: `Port ${port} — Tor/proxy service observed`,
-        tor: true,
-      });
-      continue;
-    }
-
-    if (port) {
-      const transport = service?.transportProtocol
-        ? `/${String(service.transportProtocol).toUpperCase()}`
-        : "";
-
-      if (softwareText) {
-        results.push({
-          port,
-          label: `Port ${port}${transport} — ${softwareText}`,
-          tor: false,
-        });
-      } else {
-        results.push({
-          port,
-          label: `Port ${port}${transport} — Service observed`,
-          tor: false,
-        });
-      }
-    }
-  }
-
-  return results;
-}
-
-function formatCensysPortList(services) {
-  if (!Array.isArray(services)) return "";
-  const ports = services
-    .map((s) => s?.port)
-    .filter((p) => p !== undefined && p !== null);
-  return ports.join(", ");
-}
-
-// ============================================================================
-// EVIDENCE COLLECTION (COMPACT, PRIORITIZED)
-// ============================================================================
-
-/**
- * Build compact evidence rows grouped by provider.
- * Never returns raw JSON.
- */
-function collectEvidenceRows(investigation) {
-  const groups = [];
-
-  // VirusTotal
-  const vt = getVirusTotalEvidence(investigation);
-  if (vt && sourceIsMeaningful(vt.source)) {
-    const rows = [];
-    if (vt.malicious !== undefined && vt.malicious !== null) {
-      rows.push({
-        label: "Malicious detections",
-        value: formatNumber(vt.malicious),
-        highlight: Number(vt.malicious) > 0,
-      });
-    }
-    if (vt.suspicious !== undefined && vt.suspicious !== null) {
-      rows.push({
-        label: "Suspicious detections",
-        value: formatNumber(vt.suspicious),
-        highlight: Number(vt.suspicious) > 0,
-      });
-    }
-    if (vt.reputation !== undefined && vt.reputation !== null) {
-      rows.push({
-        label: "Reputation score",
-        value: safeString(vt.reputation),
-        highlight: Number(vt.reputation) < 0,
-      });
-    }
-    if (vt.lastAnalysisDate) {
-      rows.push({
-        label: "Last analysis",
-        value: formatDateShort(vt.lastAnalysisDate),
-      });
-    }
-    if (rows.length) {
-      groups.push({ provider: "VirusTotal", rows });
-    }
-  }
-
-  // AbuseIPDB
-  const abuse = getAbuseIPDBEvidence(investigation);
-  if (abuse && sourceIsMeaningful(abuse.source)) {
-    const rows = [];
-    if (
-      abuse.abuseConfidenceScore !== undefined &&
-      abuse.abuseConfidenceScore !== null
-    ) {
-      rows.push({
-        label: "Abuse confidence",
-        value: `${formatNumber(abuse.abuseConfidenceScore)}%`,
-        highlight: Number(abuse.abuseConfidenceScore) > 0,
-      });
-    }
-    if (abuse.totalReports !== undefined && abuse.totalReports !== null) {
-      rows.push({
-        label: "Reported abuse cases",
-        value: formatNumber(abuse.totalReports),
-        highlight: Number(abuse.totalReports) > 0,
-      });
-    }
-    if (abuse.lastReportedAt) {
-      rows.push({
-        label: "Last reported",
-        value: formatDateShort(abuse.lastReportedAt),
-      });
-    }
-    if (rows.length) {
-      groups.push({ provider: "AbuseIPDB", rows });
-    }
-  }
-
-  // Censys — humanized
-  const censys = getCensysEvidence(investigation);
-  if (censys && sourceIsMeaningful(censys.source)) {
-    const rows = [];
-
-    const torDetected =
-      censys.isTor === true || String(censys.isTor).toLowerCase() === "true";
-    const proxyDetected =
-      censys.isProxy === true ||
-      String(censys.isProxy).toLowerCase() === "true";
-
-    if (torDetected) {
-      rows.push({
-        label: "Tor/proxy infrastructure",
-        value: "Detected",
-        highlight: true,
-      });
-    } else if (proxyDetected) {
-      rows.push({
-        label: "Proxy infrastructure",
-        value: "Detected",
-        highlight: true,
-      });
-    }
-
-    const portList = formatCensysPortList(censys.services);
-    if (portList) {
-      rows.push({
-        label: "Observed ports",
-        value: portList,
-      });
-    }
-
-    const formattedServices = formatCensysServices(censys.services);
-    for (const svc of formattedServices.slice(0, 4)) {
-      if (!svc.tor && svc.label) {
-        rows.push({
-          label: `Port ${svc.port}`,
-          value:
-            svc.label.replace(/^Port \d+\S*\s—\s/, "") || "Service observed",
-        });
-      }
-    }
-
-    if (
-      censys.autonomousSystem &&
-      typeof censys.autonomousSystem === "object"
-    ) {
-      const asn = firstDefined(
-        censys.autonomousSystem.asn,
-        censys.autonomousSystem.number
-      );
-      const name = firstDefined(
-        censys.autonomousSystem.name,
-        censys.autonomousSystem.organization,
-        censys.autonomousSystem.org
-      );
-      if (asn || name) {
-        rows.push({
-          label: "Autonomous system",
-          value: [asn && `AS${asn}`, name].filter(Boolean).join(" — "),
-        });
-      }
-    }
-
-    if (rows.length) {
-      groups.push({ provider: "Censys", rows });
-    }
-  }
-
-  // IPinfo — humanized
-  const ipinfo = getIPinfoEvidence(investigation);
-  if (ipinfo && sourceIsMeaningful(ipinfo.source)) {
-    const rows = [];
-
-    const countryMap = {
-      DE: "Germany",
-      US: "United States",
-      GB: "United Kingdom",
-      NG: "Nigeria",
-      FR: "France",
-      NL: "Netherlands",
-      CA: "Canada",
-      RU: "Russia",
-      CN: "China",
-    };
-
-    if (ipinfo.country) {
-      rows.push({
-        label: "Country",
-        value:
-          countryMap[String(ipinfo.country).toUpperCase()] ||
-          String(ipinfo.country),
-      });
-    }
-    if (ipinfo.region) {
-      rows.push({ label: "Region", value: String(ipinfo.region) });
-    }
-    if (ipinfo.city) {
-      rows.push({ label: "City", value: String(ipinfo.city) });
-    }
-    if (ipinfo.hostname) {
-      rows.push({
-        label: "Hostname",
-        value: truncate(String(ipinfo.hostname), 60),
-        highlight: /tor|proxy|vpn/i.test(String(ipinfo.hostname)),
-      });
-    }
-    if (ipinfo.org) {
-      rows.push({
-        label: "Organization",
-        value: truncate(String(ipinfo.org), 60),
-      });
-    }
-
-    if (rows.length) {
-      groups.push({ provider: "IPinfo", rows });
-    }
-  }
-
-  // Other providers — compact, non-duplicated
-  const knownProviders = ["VirusTotal", "AbuseIPDB", "Censys", "IPinfo"];
-
-  for (const source of meaningfulSources(investigation)) {
-    const label = providerLabel(source);
-    if (knownProviders.includes(label)) continue;
-
-    const findings = getSourceFindings(source);
-    const rows = [];
-
-    for (const [field, value] of Object.entries(findings).slice(0, 5)) {
-      if (value === undefined || value === null || value === "") continue;
-
-      let printable;
-      if (Array.isArray(value)) {
-        printable = value
-          .slice(0, 4)
-          .map((v) =>
-            typeof v === "object" ? truncate(JSON.stringify(v), 60) : String(v)
-          )
-          .join(", ");
-      } else if (typeof value === "object") {
-        printable = truncate(JSON.stringify(value), 120);
-      } else {
-        printable = truncate(String(value), 120);
-      }
-
-      if (!printable) continue;
-
-      rows.push({
-        label: humanizeField(field),
-        value: printable,
-      });
-    }
-
-    if (rows.length) {
-      groups.push({ provider: label, rows });
-    }
-  }
-
-  return groups;
-}
-
-// ============================================================================
-// PLAIN-ENGLISH REPORT CONTENT (DEDUPLICATED)
-// ============================================================================
-
-function buildAssessmentSentence({ externalThreat, environmentalRisk }) {
-  const strong = externalThreat === "high" || externalThreat === "critical";
-
-  if (strong && environmentalRisk === "unknown") {
-    return "Strong external warning signs were found, but the available evidence does not confirm impact inside your environment.";
-  }
-
-  if (strong && environmentalRisk !== "unknown") {
-    return "Strong external warning signs were found. Environmental findings are based only on the internal evidence provided.";
-  }
-
-  if (externalThreat === "moderate" && environmentalRisk === "unknown") {
-    return "Some external warning signs were found. Internal impact cannot be confirmed because internal telemetry was not provided.";
-  }
-
-  if (externalThreat === "moderate") {
-    return "Some external warning signs were found. The available evidence does not establish that an attack occurred.";
-  }
-
-  if (externalThreat === "low") {
-    return "Limited external warning signs were found. This does not prove the indicator is safe.";
-  }
-
-  return "Available external information was not sufficient to determine the external threat level with confidence.";
-}
-
-function buildWhyThisMatters({ investigation, externalThreat }) {
-  const vt = getVirusTotalEvidence(investigation);
-  const abuse = getAbuseIPDBEvidence(investigation);
-  const censys = getCensysEvidence(investigation);
-
-  const parts = [];
-
-  if (vt && Number(vt.malicious) > 0) {
-    parts.push(
-      `VirusTotal recorded ${formatNumber(vt.malicious)} malicious detections`
-    );
-  } else if (vt && Number(vt.suspicious) > 0) {
-    parts.push(
-      `VirusTotal recorded ${formatNumber(vt.suspicious)} suspicious detections`
-    );
-  }
-
-  if (abuse && Number(abuse.abuseConfidenceScore) > 0) {
-    parts.push(
-      `AbuseIPDB reported an abuse confidence of ${formatNumber(
-        abuse.abuseConfidenceScore
-      )}%`
-    );
-  }
-
-  const torDetected =
-    censys &&
-    (censys.isTor === true || String(censys.isTor).toLowerCase() === "true");
-
-  if (torDetected) {
-    parts.push("Censys observed Tor/proxy infrastructure");
-  }
-
-  const strong = externalThreat === "high" || externalThreat === "critical";
-
-  let opening = strong
-    ? "External security sources show strong warning signs for this indicator."
-    : externalThreat === "moderate"
-    ? "External security sources show some warning signs for this indicator."
-    : "External security sources show limited warning signs for this indicator.";
-
-  let detail = "";
-  if (parts.length) {
-    detail = " " + capitalize(parts.join("; ")) + ".";
-  }
-
-  return (
-    opening +
-    detail +
-    " External reputation increases concern, but it does not by itself prove that your environment was compromised."
-  );
-}
-
-function buildEnvironmentCheck({ investigation, environmentalRisk }) {
-  const internalTelemetry = detectInternalTelemetry(investigation);
-
-  if (internalTelemetry) {
-    return {
-      telemetryLabel: "Available",
-      message:
-        "Environmental evidence was included in this investigation. External reputation should still be interpreted separately from proof of compromise.",
-    };
-  }
-
-  if (environmentalRisk === "unknown") {
-    return {
-      telemetryLabel: "Not provided",
-      message:
-        "Because internal firewall, EDR, SIEM, DNS, proxy, identity, or network telemetry was not supplied, the investigation cannot determine whether the indicator affected your environment.",
-    };
-  }
-
-  return {
-    telemetryLabel: "Not provided",
-    message:
-      "Internal environmental evidence was not sufficient to determine whether this indicator affected your environment.",
-  };
-}
-
-function buildRecommendations({ target, externalThreat, environmentalRisk }) {
-  const strong = externalThreat === "high" || externalThreat === "critical";
-
-  const steps = [
-    `Search firewall, EDR, SIEM, DNS and proxy logs for ${truncate(
-      String(target),
-      40
-    )}.`,
-    "Identify the affected host, account, application or process that communicated with the indicator.",
-    "Review activity immediately before and after the connection.",
-    "Confirm whether the connection was expected or authorized.",
-  ];
-
-  if (strong) {
-    steps.push(
-      "If unauthorized, investigate as a security incident and consider containment according to your security process."
-    );
-  } else {
-    steps.push(
-      "Do not make a blocking decision from reputation alone — confirm activity and business context first."
-    );
-  }
-
-  if (environmentalRisk === "unknown") {
-    steps.push(
-      "Review EDR, SIEM, firewall, DNS, proxy, identity, or network-flow logs for the same time period if available."
-    );
-  }
-
-  steps.push("Continue monitoring for this and related indicators.");
-
-  return steps.slice(0, 6);
-}
-
-function buildKeyLimitations({ investigation, environmentalRisk }) {
-  const internalTelemetry = detectInternalTelemetry(investigation);
-  const unique = new Set();
-
-  const candidates = [];
-
-  if (environmentalRisk === "unknown" && !internalTelemetry) {
-    candidates.push(
-      "No internal telemetry was provided, so environmental impact cannot be confirmed."
-    );
-  }
-
-  // Surface unauthorized / failed providers (deduped)
-  const sources = getSources(investigation);
-  const failed = sources.filter((s) => {
-    const status = String(s.status || "").toLowerCase();
-    return (
-      status === "unauthorized" || status === "error" || status === "failed"
-    );
-  });
-
-  if (failed.length) {
-    const labels = failed.map(providerLabel).join(", ");
-    candidates.push(
-      `Some sources were unavailable (${truncate(
-        labels,
-        80
-      )}), which reduces coverage.`
-    );
-  }
-
-  const partial = sources.filter(
-    (s) => String(s.status || "").toLowerCase() === "partial"
-  );
-
-  if (partial.length) {
-    const labels = partial.map(providerLabel).join(", ");
-    candidates.push(
-      `Partial results returned by ${truncate(
-        labels,
-        80
-      )} limit confidence in those findings.`
-    );
-  }
-
-  candidates.push(
-    "External reputation alone does not confirm compromise or successful attack."
-  );
-
-  // Add investigation limitations, deduped
-  for (const lim of getLimitations(investigation)) {
-    const text = String(lim).trim();
-    if (text) candidates.push(text);
-  }
-
-  const result = [];
-  for (const c of candidates) {
-    const key = c.toLowerCase();
-    if (unique.has(key)) continue;
-    unique.add(key);
-    result.push(c);
-    if (result.length >= 4) break;
-  }
-
-  return result;
-}
-
-// ============================================================================
-// SOURCE SUMMARY
-// ============================================================================
 
 function buildSourceSummary(investigation) {
   return getSources(investigation).map((source) => ({
     label: providerLabel(source),
-
-    status: String(source?.status || "unknown").toUpperCase(),
-
-    meaningful: sourceIsMeaningful(source),
+    status: sourceStatus(source),
+    meaningful: sourceHasCanonicalMeaningful(source),
   }));
 }
 
-// ============================================================================
-// PDF DESIGN PRIMITIVES
-// ============================================================================
+function safeScalar(value, maxLength = 90) {
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return truncate(value, maxLength);
+  if (Array.isArray(value)) {
+    if (!value.length) return "";
+    const strings = value.filter((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean").map(String);
+    return strings.length ? truncate(strings.slice(0, 4).join(", "), maxLength) : `${value.length} item${value.length === 1 ? "" : "s"}`;
+  }
+  return "";
+}
 
-function ensureSpace(doc, requiredHeight = 60) {
-  if (doc.y + requiredHeight > CONTENT.bottom) {
-    doc.addPage();
-    doc.y = PAGE.margin;
+function addRow(rows, label, value, suffix = "") {
+  const rendered = safeScalar(value);
+  if (!rendered) return;
+  rows.push({ label, value: `${rendered}${suffix}` });
+}
+
+function getVirusTotalEvidence(source) {
+  const finding = firstFinding(source);
+  return {
+    malicious: firstDefined(finding.malicious, finding.maliciousCount, finding.lastAnalysisStats?.malicious),
+    suspicious: firstDefined(finding.suspicious, finding.suspiciousCount, finding.lastAnalysisStats?.suspicious),
+    harmless: firstDefined(finding.harmless, finding.harmlessCount, finding.lastAnalysisStats?.harmless),
+    undetected: firstDefined(finding.undetected, finding.undetectedCount, finding.lastAnalysisStats?.undetected),
+    reputation: firstDefined(finding.reputation, finding.reputationScore),
+    lastAnalysisDate: firstDefined(finding.lastAnalysisDate, finding.last_analysis_date, finding.lastAnalysis),
+  };
+}
+
+function getAbuseIPDBEvidence(source) {
+  const finding = firstFinding(source);
+  return {
+    abuseConfidenceScore: firstDefined(finding.abuseConfidenceScore, finding.abuse_confidence_score),
+    totalReports: firstDefined(finding.totalReports, finding.total_reports),
+    lastReportedAt: firstDefined(finding.lastReportedAt, finding.last_reported_at),
+    countryCode: firstDefined(finding.countryCode, finding.country_code),
+    isp: finding.isp,
+  };
+}
+
+function getCensysEvidence(source) {
+  const finding = firstFinding(source);
+  const location = finding.location && typeof finding.location === "object" ? finding.location : {};
+  const autonomousSystem = firstDefined(
+    finding.autonomousSystem,
+    finding.autonomous_system,
+    finding.asn
+  );
+  return {
+    country: firstDefined(location.country, finding.country),
+    city: firstDefined(location.city, finding.city),
+    autonomousSystem,
+    services: Array.isArray(finding.services) ? finding.services : [],
+  };
+}
+
+function getIPinfoEvidence(source) {
+  const finding = firstFinding(source);
+  return {
+    country: finding.country,
+    region: finding.region,
+    city: finding.city,
+    hostname: finding.hostname,
+    organization: firstDefined(finding.organization, finding.org),
+    asn: firstDefined(finding.asn, finding.autonomousSystemNumber),
+  };
+}
+
+function humanizeCensysServices(services) {
+  const rows = [];
+  for (const service of Array.isArray(services) ? services : []) {
+    if (!service || typeof service !== "object") continue;
+    const port = firstDefined(service.port, service.portNumber);
+    const transport = firstDefined(service.transportProtocol, service.transport);
+    const software = service.software?.product || service.software?.name || service.product || service.name;
+    const labels = Array.isArray(service.labels) ? service.labels : [];
+    const proxyLike = labels.some((label) => /proxy_server/i.test(String(label))) || /tor/i.test(safeString(software));
+    const pieces = [];
+    if (port !== undefined) pieces.push(`Port ${port}`);
+    if (transport) pieces.push(String(transport).toUpperCase());
+    if (software) pieces.push(String(software));
+    if (proxyLike) pieces.push("Tor/proxy indicator");
+    if (pieces.length) rows.push(pieces.join(" · "));
+  }
+  return rows;
+}
+
+function formatVirusTotalLastAnalysis(value) {
+  if (value === undefined || value === null || value === "") return "";
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "";
+  const date = new Date(numeric * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+}
+
+function getURLScanEvidence(source) {
+  const finding = firstFinding(source);
+  const observations = Array.isArray(finding.results)
+    ? finding.results
+    : Array.isArray(finding.observations)
+      ? finding.observations
+      : Array.isArray(finding.scans)
+        ? finding.scans
+        : [];
+  const latest = observations.length ? observations[0] : null;
+  const observedIp = firstDefined(
+    finding.observedIp,
+    finding.observedIP,
+    finding.ip,
+    latest?.page?.ip,
+    latest?.lists?.ips?.[0],
+    latest?.ip
+  );
+  const server = firstDefined(
+    finding.server,
+    latest?.page?.server,
+    latest?.http?.server
+  );
+  const latestObservation = firstDefined(
+    finding.latestObservation,
+    finding.latestObservedAt,
+    finding.lastScanDate,
+    latest?.task?.time,
+    latest?.page?.timestamp,
+    latest?.timestamp
+  );
+  const totalResults = firstDefined(
+    finding.totalResults,
+    finding.total_results,
+    observations.length || undefined
+  );
+  return { totalResults, observedIp, server, latestObservation };
+}
+
+const INTERNAL_EVIDENCE_KEYS = new Set([
+  "meaningful",
+  "evidenceQuality",
+  "evidence_quality",
+  "quality",
+  "freshness",
+  "isMeaningful",
+  "sourceStatus",
+  "providerStatus",
+]);
+
+function isInternalEvidenceKey(key) {
+  return INTERNAL_EVIDENCE_KEYS.has(String(key)) || /^_(?:internal|control|scoring)/i.test(String(key));
+}
+
+function normalizeHostname(value) {
+  let host = safeString(value).toLowerCase();
+  if (!host) return "";
+  try {
+    if (host.includes("://")) host = new URL(host).hostname;
+    else host = new URL(`https://${host}`).hostname;
+  } catch {
+    host = host.split("/")[0].split(":")[0];
+  }
+  return host.replace(/^www\./i, "").replace(/\.$/, "");
+}
+
+function getInvestigationHostname(investigation) {
+  const target = resolveTargetValue(investigation?.target);
+  return normalizeHostname(target);
+}
+
+function filterURLScanObservations(observations, investigation) {
+  const rows = Array.isArray(observations) ? observations : [];
+  const targetHost = getInvestigationHostname(investigation);
+  if (!targetHost) return rows;
+
+  const observationsWithDomain = rows.filter((observation) =>
+    observation && typeof observation === "object" && safeString(observation.domain)
+  );
+  if (!observationsWithDomain.length) return rows;
+
+  return rows.filter((observation) => {
+    if (!observation || typeof observation !== "object") return false;
+    const observedHost = normalizeHostname(observation.domain);
+    if (!observedHost) return false;
+    return observedHost === targetHost || observedHost.endsWith(`.${targetHost}`);
+  });
+}
+
+function providerRows(source, investigation) {
+  const label = providerLabel(source);
+  const rows = [];
+  if (label === "VirusTotal") {
+    const e = getVirusTotalEvidence(source);
+    addRow(rows, "Malicious detections", e.malicious);
+    addRow(rows, "Suspicious detections", e.suspicious);
+    addRow(rows, "Harmless detections", e.harmless);
+    addRow(rows, "Undetected", e.undetected);
+    const lastAnalysis = formatVirusTotalLastAnalysis(e.lastAnalysisDate);
+    if (lastAnalysis) addRow(rows, "Last analysis", lastAnalysis);
+    else addRow(rows, "Reputation score", e.reputation);
+  } else if (label === "AbuseIPDB") {
+    const e = getAbuseIPDBEvidence(source);
+    addRow(rows, "Abuse confidence", e.abuseConfidenceScore, "%");
+    addRow(rows, "Reported abuse cases", e.totalReports);
+    if (e.lastReportedAt !== undefined && normalizeTimestamp(e.lastReportedAt)) addRow(rows, "Last reported", formatDateOnly(e.lastReportedAt));
+    addRow(rows, "Country", e.countryCode ? mapCountry(e.countryCode) : "");
+    addRow(rows, "ISP", e.isp);
+  } else if (label === "Censys") {
+    const e = getCensysEvidence(source);
+    addRow(rows, "Country", e.country ? mapCountry(e.country) : "");
+    addRow(rows, "City", e.city);
+    if (e.autonomousSystem && typeof e.autonomousSystem === "object") {
+      const asnNumber = firstDefined(e.autonomousSystem.asn, e.autonomousSystem.number);
+      const asnName = firstDefined(e.autonomousSystem.description, e.autonomousSystem.name);
+      const asnValue = asnNumber !== undefined && asnName
+        ? `AS${asnNumber} - ${asnName}`
+        : firstDefined(asnName, asnNumber !== undefined ? `AS${asnNumber}` : "");
+      addRow(rows, "Autonomous system", asnValue);
+    } else {
+      addRow(rows, "Autonomous system", e.autonomousSystem);
+    }
+    const services = humanizeCensysServices(e.services);
+    if (services.length) addRow(rows, "Services", services.join("; "));
+  } else if (label === "IPinfo") {
+    const e = getIPinfoEvidence(source);
+    addRow(rows, "Country", e.country ? mapCountry(e.country) : "");
+    addRow(rows, "Region", e.region);
+    addRow(rows, "City", e.city);
+    addRow(rows, "Hostname", e.hostname);
+    addRow(rows, "Organization", e.organization);
+    addRow(rows, "ASN", e.asn);
+  } else if (label === "URLScan") {
+    const finding = firstFinding(source);
+    const rawObservations = Array.isArray(finding.results)
+      ? finding.results
+      : Array.isArray(finding.observations)
+        ? finding.observations
+        : Array.isArray(finding.scans)
+          ? finding.scans
+          : [];
+    const filteredObservations = filterURLScanObservations(rawObservations, investigation);
+    const e = getURLScanEvidence({
+      ...source,
+      findings: [{
+        ...finding,
+        results: filteredObservations,
+        observations: filteredObservations,
+        scans: filteredObservations,
+        totalResults: rawObservations.length && filteredObservations.length !== rawObservations.length
+          ? filteredObservations.length
+          : finding.totalResults,
+      }],
+    });
+    addRow(rows, "Results", e.totalResults);
+    addRow(rows, "Observed IP", e.observedIp);
+    addRow(rows, "Server", e.server);
+    if (e.latestObservation !== undefined && normalizeTimestamp(e.latestObservation)) {
+      addRow(rows, "Latest observation", formatDateOnly(e.latestObservation));
+    }
+  }
+
+  if (!rows.length) {
+    for (const finding of getSourceFindings(source)) {
+      if (!finding || typeof finding !== "object") continue;
+      for (const [key, value] of Object.entries(finding)) {
+        if (rows.length >= 5) break;
+        if (isInternalEvidenceKey(key)) continue;
+        if (value === undefined || value === null || value === "") continue;
+        const rendered = safeScalar(value);
+        if (!rendered) continue;
+        rows.push({ label: humanize(key), value: rendered });
+      }
+      if (rows.length >= 5) break;
+    }
+  }
+  return rows.slice(0, 6);
+}
+
+function buildEvidenceGroups(investigation) {
+  const groups = [];
+  for (const source of getSources(investigation)) {
+    if (!sourceCanShowEvidence(source)) continue;
+    const rows = providerRows(source, investigation);
+    if (!rows.length) continue;
+    groups.push({ title: providerLabel(source), status: sourceStatus(source), rows });
+  }
+  return groups
+    .sort((a, b) => {
+      const aMeaningful = sourceHasCanonicalMeaningful(findSource(investigation, a.title)) ? 0 : 1;
+      const bMeaningful = sourceHasCanonicalMeaningful(findSource(investigation, b.title)) ? 0 : 1;
+      return aMeaningful - bMeaningful;
+    })
+    .slice(0, 6);
+}
+
+function buildWhyThisMatters(investigation) {
+  const reasons = [];
+  const vt = findSource(investigation, "virustotal");
+  if (vt && sourceCanShowEvidence(vt)) {
+    const e = getVirusTotalEvidence(vt);
+    if (e.malicious !== undefined) reasons.push(`VirusTotal reported ${e.malicious} malicious detection${Number(e.malicious) === 1 ? "" : "s"}.`);
+    if (e.suspicious !== undefined && Number(e.suspicious) > 0) reasons.push(`VirusTotal also reported ${e.suspicious} suspicious detection${Number(e.suspicious) === 1 ? "" : "s"}.`);
+  }
+  const abuse = findSource(investigation, "abuseipdb");
+  if (abuse && sourceCanShowEvidence(abuse)) {
+    const e = getAbuseIPDBEvidence(abuse);
+    if (e.abuseConfidenceScore !== undefined) reasons.push(`AbuseIPDB reported an abuse confidence score of ${e.abuseConfidenceScore}%.`);
+    if (e.totalReports !== undefined) reasons.push(`AbuseIPDB recorded ${e.totalReports} reported abuse case${Number(e.totalReports) === 1 ? "" : "s"}.`);
+  }
+  const censys = findSource(investigation, "censys");
+  if (censys && sourceCanShowEvidence(censys)) {
+    const e = getCensysEvidence(censys);
+    const tor = e.isTor === true || e.isTor === "true";
+    const proxy = e.isProxy === true || e.isProxy === "true";
+    if (tor || proxy) reasons.push(`Censys identified ${tor ? "Tor" : "proxy"}-related infrastructure.`);
+  }
+  const urlscan = findSource(investigation, "urlscan");
+  const vtEvidence = vt && sourceCanShowEvidence(vt) ? getVirusTotalEvidence(vt) : {};
+  const phishing = findSource(investigation, "phishing_database");
+  const urlhaus = findSource(investigation, "urlhaus");
+  const threatfox = findSource(investigation, "threatfox");
+  const noStrongReputation =
+    (vtEvidence.malicious === undefined || Number(vtEvidence.malicious) === 0) &&
+    (vtEvidence.suspicious === undefined || Number(vtEvidence.suspicious) === 0) &&
+    (!phishing || !sourceCanShowEvidence(phishing) || firstFinding(phishing).match !== true) &&
+    (!urlhaus || !sourceCanShowEvidence(urlhaus) || firstFinding(urlhaus).match !== true) &&
+    (!threatfox || !sourceCanShowEvidence(threatfox) || !Array.isArray(firstFinding(threatfox).matches) || firstFinding(threatfox).matches.length === 0);
+  if (noStrongReputation && urlscan && sourceCanShowEvidence(urlscan)) {
+    const e = getURLScanEvidence(urlscan);
+    if (e.totalResults !== undefined) reasons.push(`Available external intelligence did not identify a confirmed phishing or malware match. URLScan returned ${e.totalResults} result${Number(e.totalResults) === 1 ? "" : "s"}.`);
+  } else {
+    reasons.push("These are external intelligence signals and do not by themselves prove compromise, successful exploitation, or impact inside the environment.");
+  }
+  return dedupe(reasons).slice(0, 4);
+}
+
+function buildAssessmentSentence({ externalThreat, environmentalRisk }) {
+  if (["elevated", "high", "critical"].includes(externalThreat)) {
+    if (environmentalRisk === "unknown") return "Strong external warning signs were found, but the available evidence does not confirm impact inside your environment.";
+    return "Strong external warning signs were found. Environmental findings are based only on the internal evidence provided.";
+  }
+  if (externalThreat === "moderate") {
+    if (environmentalRisk === "unknown") return "Some external warning signs were found. Internal impact cannot be confirmed because internal telemetry was not provided.";
+    return "Some external warning signs were found. The available evidence does not establish that an attack occurred.";
+  }
+  if (externalThreat === "low") return "Limited external warning signs were found. This does not prove the indicator is safe.";
+  return "Available external information was not sufficient to determine the external threat level with confidence.";
+}
+
+function buildRecommendations({ externalThreat, environmentalRisk }) {
+  const recommendations = [
+    "Search firewall, EDR, SIEM, DNS and proxy logs for the investigated target.",
+    "Identify any affected host, account, application or process associated with the activity.",
+    "Review activity immediately before and after the observed connection or event.",
+    "Confirm whether the activity was expected and authorized.",
+  ];
+  if (["elevated", "high", "critical"].includes(externalThreat)) {
+    recommendations.push("If the activity was unauthorized, investigate it as a potential incident and consider containment according to the organization's incident-response process; do not rely on reputation alone.");
+  } else {
+    recommendations.push("Do not block or contain solely because of an external reputation signal; validate the activity against internal telemetry and business context.");
+  }
+  if (environmentalRisk === "unknown") {
+    recommendations.push("Review EDR, SIEM, firewall, DNS, proxy, identity and network-flow telemetry because environmental impact has not been established.");
+  }
+  recommendations.push("Continue monitoring for related activity and correlate any new internal evidence with the existing investigation.");
+  return dedupe(recommendations).slice(0, 6);
+}
+
+function limitationText(item) {
+  if (item && typeof item === "object") return firstDefined(safeString(item.statement), safeString(item.description), safeString(item.message));
+  return safeString(item);
+}
+
+function buildKeyLimitations({ investigation, environmentalRisk }) {
+  const limitations = [];
+  if (environmentalRisk === "unknown") limitations.push("The investigation could not establish environmental impact without supporting internal telemetry.");
+  const failedSources = getSources(investigation)
+    .filter((source) => TERMINAL_NON_EVIDENCE_STATUSES.has(sourceStatus(source)))
+    .map(providerLabel);
+  if (failedSources.length) limitations.push(`Unavailable or failed sources reduced coverage: ${dedupe(failedSources).join(", ")}.`);
+  const partialSources = getSources(investigation).filter((source) => sourceStatus(source) === "partial").map(providerLabel);
+  if (partialSources.length) limitations.push(`Partial results were returned by: ${dedupe(partialSources).join(", ")}.`);
+  for (const limitation of Array.isArray(investigation?.limitations) ? investigation.limitations : []) {
+    const text = limitationText(limitation);
+    if (text) limitations.push(text);
+  }
+  return dedupe(limitations).slice(0, 4);
+}
+
+function crossSourceText(item, type) {
+  if (item === undefined || item === null) return "";
+  if (typeof item === "string") return item.trim();
+  if (typeof item !== "object") return safeString(item);
+  if (type === "correlation") {
+    const description = firstDefined(item.description, item.statement, item.message);
+    const evidenceType = firstDefined(item.evidenceType, item.type);
+    const strength = firstDefined(item.strength, item.confidence);
+    const prefix = [safeString(evidenceType), safeString(strength)].filter(Boolean).join("; ");
+    if (prefix && description) return `[${prefix}] ${description}`;
+    if (description) return safeString(description);
+    return safeString(JSON.stringify(item));
+  }
+  const description = firstDefined(item.description, item.statement, item.message);
+  const resolution = firstDefined(item.resolution, item.status);
+  if (resolution && description) return `${description} Resolution: ${resolution}.`;
+  if (description) return safeString(description);
+  return safeString(JSON.stringify(item));
+}
+
+function drawCrossSourceAnalysis(doc, investigation) {
+  const correlations = getCorrelations(investigation);
+  const conflicts = getConflicts(investigation);
+  if (!correlations.length && !conflicts.length) return;
+
+  const y = 575;
+  const height = 154;
+  drawCard(doc, { x: PAGE.margin, y, width: PAGE.contentWidth, height, background: COLORS.white, border: COLORS.border });
+  drawSectionTitle(doc, "Cross-Source Analysis", PAGE.margin + 10, y + 9, PAGE.contentWidth - 20);
+
+  const columns = [
+    { title: "Correlations", items: correlations.map((item) => crossSourceText(item, "correlation")) },
+    { title: "Conflicts", items: conflicts.map((item) => crossSourceText(item, "conflict")) },
+  ].filter((column) => column.items.length);
+  const gap = 10;
+  const width = columns.length === 2 ? (PAGE.contentWidth - 20 - gap) / 2 : PAGE.contentWidth - 20;
+  let x = PAGE.margin + 10;
+
+  for (const column of columns) {
+    drawText(doc, column.title, x, y + 27, width, { font: "Helvetica-Bold", size: 6.7, color: COLORS.muted });
+    let currentY = y + 40;
+    for (const item of column.items) {
+      if (!item) continue;
+      doc.circle(x + 2.5, currentY + 3.5, 1.4).fill(COLORS.blue);
+      const itemHeight = doc.font("Helvetica").fontSize(6.15).heightOfString(item, { width: width - 11, lineGap: 0.5 });
+      drawText(doc, item, x + 9, currentY, width - 9, { size: 6.15, color: COLORS.slate, lineGap: 0.5 });
+      currentY += Math.max(12, itemHeight + 3);
+    }
+    x += width + gap;
   }
 }
 
-function getLevelStyle(level) {
-  const normalized = normalizeLevel(level);
-
-  switch (normalized) {
-    case "critical":
-    case "high":
-      return {
-        color: COLORS.red,
-        background: COLORS.redLight,
-        border: COLORS.redBorder,
-      };
-    case "moderate":
-      return {
-        color: COLORS.amber,
-        background: COLORS.amberLight,
-        border: COLORS.amberBorder,
-      };
-    case "low":
-      return {
-        color: COLORS.green,
-        background: COLORS.greenLight,
-        border: COLORS.greenBorder,
-      };
-    default:
-      return {
-        color: COLORS.slate,
-        background: COLORS.background,
-        border: COLORS.border,
-      };
-  }
+function drawText(doc, text, x, y, width, options = {}) {
+  const { font = "Helvetica", size = 9, color = COLORS.slate, align = "left", lineGap = 1 } = options;
+  doc.font(font).fontSize(size).fillColor(color).text(safeString(text), x, y, { width, align, lineGap });
+  return doc.y;
 }
 
-// ============================================================================
-// PAGE FRAME
-// ============================================================================
+function drawCard(doc, { x, y, width, height, background = COLORS.white, border = COLORS.border, radius = 8 }) {
+  doc.roundedRect(x, y, width, height, radius).fillAndStroke(background, border);
+}
+
+function drawStatusPill(doc, text, x, y, style, maxWidth = 105) {
+  const label = truncate(text, 18) || "Unknown";
+  doc.font("Helvetica-Bold").fontSize(6.7);
+  const width = Math.min(maxWidth, Math.max(42, doc.widthOfString(label) + 14));
+  doc.roundedRect(x, y, width, 15, 7.5).fill(style.background);
+  doc.fillColor(style.color).text(label, x + 7, y + 4, { width: width - 14, lineBreak: false });
+  return width;
+}
+
+function drawSectionTitle(doc, title, x = PAGE.margin, y, width = PAGE.contentWidth) {
+  doc.font("Helvetica-Bold").fontSize(9.5).fillColor(COLORS.navy).text(title, x, y, { width, lineBreak: false });
+}
 
 function drawHeader(doc, { target, targetType, reportId, generatedAt }) {
-  // Top accent bar
-  doc.rect(0, 0, PAGE.width, 5).fill(COLORS.blue);
+  doc.rect(0, 0, PAGE.width, 6).fill(COLORS.blue);
+  drawText(doc, "LAKEWEST AI SECURITY ASSISTANT", PAGE.margin, 27, 250, { font: "Helvetica-Bold", size: 9, color: COLORS.blue });
+  drawText(doc, "AI SECURITY ASSISTANT", PAGE.margin, 40, 250, { size: 7, color: COLORS.muted });
+  drawText(doc, "SECURITY INVESTIGATION BRIEF", PAGE.margin, 63, 330, { font: "Helvetica-Bold", size: 17, color: COLORS.navy });
+  drawText(doc, "Evidence-led investigation summary", PAGE.margin, 85, 330, { size: 7.5, color: COLORS.muted });
 
-  // Brand block
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(15)
-    .fillColor(COLORS.navy)
-    .text("LAKEWEST", PAGE.margin, 20);
+  const metaX = 382;
+  drawText(doc, "REPORT ID", metaX, 27, 170, { font: "Helvetica-Bold", size: 6.5, color: COLORS.lightText });
+  drawText(doc, truncate(reportId, 28), metaX, 39, 170, { size: 7, color: COLORS.slate });
+  drawText(doc, "GENERATED", metaX, 55, 170, { font: "Helvetica-Bold", size: 6.5, color: COLORS.lightText });
+  drawText(doc, formatDate(generatedAt), metaX, 67, 170, { size: 7, color: COLORS.slate });
 
-  doc
-    .font("Helvetica")
-    .fontSize(7.5)
-    .fillColor(COLORS.muted)
-    .text("AI SECURITY ASSISTANT", PAGE.margin, 38);
+  const targetY = 111;
+  drawCard(doc, { x: PAGE.margin, y: targetY, width: PAGE.contentWidth, height: 52, background: COLORS.background, border: COLORS.border });
+  drawText(doc, "INVESTIGATION TARGET", PAGE.margin + 12, targetY + 9, 250, { font: "Helvetica-Bold", size: 6.5, color: COLORS.lightText });
+  drawText(doc, truncate(target, 72), PAGE.margin + 12, targetY + 21, 360, { font: "Helvetica-Bold", size: 11, color: COLORS.navy });
 
-  // Report type (right aligned)
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(8)
-    .fillColor(COLORS.slate)
-    .text("SECURITY INVESTIGATION BRIEF", PAGE.width - 240, 22, {
-      width: 198,
-      align: "right",
-    });
+}
 
-  doc
-    .font("Helvetica")
-    .fontSize(7)
-    .fillColor(COLORS.lightText)
-    .text(`Report ID: ${truncate(reportId, 26)}`, PAGE.width - 240, 36, {
-      width: 198,
-      align: "right",
-    });
+function drawAssessmentCards(doc, externalThreat, environmentalRisk) {
+  const gap = SPACING.cardGap;
+  const width = (PAGE.contentWidth - gap) / 2;
+  const y = 175;
+  const height = 65;
+  const externalStyle = levelStyle(externalThreat);
+  drawCard(doc, { x: PAGE.margin, y, width, height, background: externalStyle.background, border: externalStyle.border });
+  drawText(doc, "EXTERNAL THREAT", PAGE.margin + 11, y + 9, width - 22, { font: "Helvetica-Bold", size: 6.8, color: externalStyle.color });
+  drawText(doc, levelLabel(externalThreat), PAGE.margin + 11, y + 23, width - 22, { font: "Helvetica-Bold", size: 16, color: externalStyle.color });
+  drawText(doc, "Assessment based on the available external intelligence.", PAGE.margin + 11, y + 45, width - 22, { size: 6.8, color: COLORS.muted });
 
-  // Divider
-  doc
-    .moveTo(PAGE.margin, 54)
-    .lineTo(PAGE.width - PAGE.margin, 54)
-    .strokeColor(COLORS.border)
-    .lineWidth(0.6)
-    .stroke();
+  const envX = PAGE.margin + width + gap;
+  const envStyle = levelStyle(environmentalRisk);
+  drawCard(doc, { x: envX, y, width, height, background: envStyle.background, border: envStyle.border });
+  drawText(doc, "ENVIRONMENTAL RISK", envX + 11, y + 9, width - 22, { font: "Helvetica-Bold", size: 6.8, color: envStyle.color });
+  drawText(doc, levelLabel(environmentalRisk), envX + 11, y + 23, width - 22, { font: "Helvetica-Bold", size: 16, color: envStyle.color });
+  drawText(doc, environmentalRisk === "unknown" ? "The investigation could not establish environmental impact." : "Based only on the supplied internal evidence.", envX + 11, y + 45, width - 22, { size: 6.8, color: COLORS.muted });
+}
 
-  // Target block (compact, prominent)
-  const blockY = 62;
-  const blockHeight = 48;
+function drawMetricRow(doc, riskScore, confidenceScore, confidenceLevel, coverage) {
+  const y = 249;
+  const gap = SPACING.cardGap;
+  const width = (PAGE.contentWidth - gap * 2) / 3;
+  const height = 51;
 
-  doc
-    .roundedRect(PAGE.margin, blockY, CONTENT.width, blockHeight, 7)
-    .fillAndStroke(COLORS.background, COLORS.border);
+  drawCard(doc, { x: PAGE.margin, y, width, height });
+  drawText(doc, "RISK SCORE", PAGE.margin + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
+  drawText(doc, riskScore === null ? "Unknown" : `${riskScore}/100`, PAGE.margin + 11, y + 21, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.slate });
+  drawText(doc, "Risk score from the investigation.", PAGE.margin + 11, y + 38, width - 22, { size: 6.4, color: COLORS.muted });
 
-  // Left accent
-  doc.rect(PAGE.margin, blockY, 4, blockHeight).fill(COLORS.blue);
+  const confidenceX = PAGE.margin + width + gap;
+  drawCard(doc, { x: confidenceX, y, width, height });
+  drawText(doc, "CONFIDENCE", confidenceX + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
+  const confidenceText = confidenceScore === null ? "Unknown" : `${confidenceScore}% - ${humanize(confidenceLevel)}`;
+  drawText(doc, confidenceText, confidenceX + 11, y + 21, width - 22, { font: "Helvetica-Bold", size: 10.5, color: COLORS.slate });
+  drawText(doc, "Confidence based on the available evidence.", confidenceX + 11, y + 38, width - 22, { size: 6.4, color: COLORS.muted });
 
-  doc
-    .font("Helvetica")
-    .fontSize(7)
-    .fillColor(COLORS.muted)
-    .text("TARGET", PAGE.margin + 14, blockY + 9);
+  const coverageX = confidenceX + width + gap;
+  drawCard(doc, { x: coverageX, y, width, height });
+  drawText(doc, "MEANINGFUL COVERAGE", coverageX + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
+  drawText(doc, `${coverage.meaningful}/${coverage.total}`, coverageX + 11, y + 20, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.blue });
+  drawText(doc, `${coverage.consulted} consulted`, coverageX + 11, y + 37, width - 22, { size: 6.4, color: COLORS.muted });
+}
 
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(13)
-    .fillColor(COLORS.navy)
-    .text(truncate(String(target), 70), PAGE.margin + 14, blockY + 21, {
-      width: CONTENT.width - 220,
-    });
+function drawWrappedBulletList(doc, items, x, y, width, fontSize = 7.3, maxItems = items.length) {
+  let currentY = y;
+  for (const item of items.slice(0, maxItems)) {
+    const text = safeString(item);
+    if (!text) continue;
+    doc.circle(x + 3, currentY + 4, 1.8).fill(COLORS.blue);
+    const h = doc.font("Helvetica").fontSize(fontSize).heightOfString(text, { width: width - 13, lineGap: 1 });
+    doc.fillColor(COLORS.slate).text(text, x + 12, currentY, { width: width - 12, lineGap: 1 });
+    currentY += Math.max(13, h + 3);
+  }
+  return currentY;
+}
 
-  // Right side: type + generated
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(7.5)
-    .fillColor(COLORS.blue)
-    .text(
-      String(targetType).toUpperCase(),
-      PAGE.width - PAGE.margin - 200,
-      blockY + 9,
-      {
-        width: 186,
-        align: "right",
-      }
-    );
+function drawActionPanel(doc, recommendations) {
+  const y = 346;
+  const height = 110;
+  drawCard(doc, { x: PAGE.margin, y, width: PAGE.contentWidth, height, background: COLORS.blueLight, border: COLORS.blueBorder });
+  drawText(doc, "WHAT TO DO NOW", PAGE.margin + 10, y + 9, PAGE.contentWidth - 20, { font: "Helvetica-Bold", size: 8.5, color: COLORS.navy });
+  drawWrappedBulletList(doc, recommendations, PAGE.margin + 11, y + 27, PAGE.contentWidth - 22, 7.05, 6);
+}
 
-  doc
-    .font("Helvetica")
-    .fontSize(7.5)
-    .fillColor(COLORS.muted)
-    .text(
-      `Generated ${formatDate(generatedAt)}`,
-      PAGE.width - PAGE.margin - 240,
-      blockY + 24,
-      {
-        width: 226,
-        align: "right",
-      }
-    );
+function drawWhyThisMatters(doc, reasons) {
+  const y = 466;
+  drawSectionTitle(doc, "Why This Matters", PAGE.margin, y);
+  drawWrappedBulletList(doc, reasons, PAGE.margin, y + 18, PAGE.contentWidth, 7.1, 3);
+}
 
-  doc.y = blockY + blockHeight + 12;
+function evidenceCardHeight(group, width) {
+  const rows = group.rows || [];
+  let height = 29;
+  for (const row of rows.slice(0, 5)) {
+    const valueHeight = Math.max(12, measureTextHeight(row.value, width * 0.52 - 8, 6.5));
+    height += Math.max(15, valueHeight + 2);
+  }
+  return Math.min(94, height + 7);
+}
+
+function measureTextHeight(text, width, size) {
+  const doc = measureTextHeight.doc;
+  doc.font("Helvetica").fontSize(size);
+  return doc.heightOfString(safeString(text), { width, lineGap: 1 });
+}
+
+function drawEvidenceGroups(doc, groups) {
+  const y = 510;
+  drawSectionTitle(doc, "Key Evidence", PAGE.margin, y);
+  drawText(doc, "Selected evidence from provider results with usable returned data.", PAGE.margin, y + 13, PAGE.contentWidth, { size: 6.5, color: COLORS.muted });
+
+  const gap = 7;
+  const columns = 2;
+  const width = (PAGE.contentWidth - gap) / columns;
+  let currentY = y + 28;
+  let rowMaxHeight = 0;
+  const visible = groups.slice(0, 4);
+
+  for (let index = 0; index < visible.length; index += 1) {
+    const group = visible[index];
+    const column = index % columns;
+    if (column === 0) rowMaxHeight = 0;
+    const height = evidenceCardHeight(group, width);
+    rowMaxHeight = Math.max(rowMaxHeight, height);
+    const x = PAGE.margin + column * (width + gap);
+    drawCard(doc, { x, y: currentY, width, height, background: COLORS.white, border: COLORS.border });
+    drawText(doc, group.title, x + 9, currentY + 8, width - 75, { font: "Helvetica-Bold", size: 7.5, color: COLORS.navy });
+    const statusStyle = group.status === "partial"
+      ? { color: COLORS.amber, background: COLORS.amberLight }
+      : { color: COLORS.green, background: COLORS.greenLight };
+    const pillW = group.status === "partial" ? 43 : 45;
+    drawStatusPill(doc, humanize(group.status), x + width - pillW - 9, currentY + 7, statusStyle, pillW);
+    let rowY = currentY + 24;
+    for (const row of group.rows.slice(0, 5)) {
+      drawText(doc, row.label, x + 9, rowY, width * 0.43, { size: 6.2, color: COLORS.muted });
+      const valueH = measureTextHeight(row.value, width * 0.52 - 8, 6.4);
+      drawText(doc, truncate(row.value, 82), x + width * 0.43, rowY, width * 0.52 - 8, { font: "Helvetica-Bold", size: 6.4, color: COLORS.slate, align: "right", lineGap: 1 });
+      rowY += Math.max(14, valueH + 1);
+    }
+    if (column === 1 || index === visible.length - 1) currentY += rowMaxHeight + gap;
+  }
+}
+
+function drawEnvironmentCheck(doc, environmentalRisk) {
+  const y = 45;
+  drawSectionTitle(doc, "Environment Check", PAGE.margin, y);
+  const cardY = y + 16;
+  const height = 67;
+  const unknown = environmentalRisk === "unknown";
+  drawCard(doc, { x: PAGE.margin, y: cardY, width: PAGE.contentWidth, height, background: unknown ? COLORS.background : COLORS.greenLight, border: unknown ? COLORS.border : COLORS.greenBorder });
+  drawText(doc, unknown ? "Environmental telemetry not established" : "Environmental evidence supplied", PAGE.margin + 11, cardY + 10, PAGE.contentWidth - 22, { font: "Helvetica-Bold", size: 8, color: unknown ? COLORS.slate : COLORS.green });
+  drawText(doc, unknown
+    ? "The investigation could not establish environmental impact. External intelligence cannot establish whether the target affected the environment without supporting internal telemetry."
+    : "The investigation includes environmental evidence. Interpret the environmental risk only within the scope of the supplied internal evidence.",
+  PAGE.margin + 11, cardY + 27, PAGE.contentWidth - 22, { size: 7.1, color: COLORS.slate, lineGap: 1 });
+}
+
+function drawConfidenceCoveragePage2(doc, confidence, confidenceScore, confidenceLevel, coverage) {
+  const y = 136;
+  drawSectionTitle(doc, "Confidence & Coverage", PAGE.margin, y);
+  const gap = 7;
+  const width = (PAGE.contentWidth - gap) / 2;
+  const height = 56;
+  drawCard(doc, { x: PAGE.margin, y: y + 16, width, height });
+  drawText(doc, "OVERALL CONFIDENCE", PAGE.margin + 11, y + 25, width - 22, { font: "Helvetica-Bold", size: 6.5, color: COLORS.muted });
+  drawText(doc, confidenceScore === null ? humanize(confidence) : `${confidenceScore}% - ${humanize(confidenceLevel)}`, PAGE.margin + 11, y + 38, width - 22, { font: "Helvetica-Bold", size: 10.5, color: COLORS.slate });
+
+  const x = PAGE.margin + width + gap;
+  drawCard(doc, { x, y: y + 16, width, height });
+  drawText(doc, "MEANINGFUL COVERAGE", x + 11, y + 25, width - 22, { font: "Helvetica-Bold", size: 6.5, color: COLORS.muted });
+  drawText(doc, `${coverage.meaningful}/${coverage.total}`, x + 11, y + 38, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.blue });
+  drawText(doc, `${coverage.consulted} consulted`, x + 88, y + 40, width - 100, { size: 6.5, color: COLORS.muted, align: "right" });
+}
+
+function statusStyle(status) {
+  if (status === "success") return { color: COLORS.green, background: COLORS.greenLight };
+  if (status === "partial") return { color: COLORS.amber, background: COLORS.amberLight };
+  if (["timeout", "error", "failed", "unauthorized"].includes(status)) return { color: COLORS.red, background: COLORS.redLight };
+  return { color: COLORS.muted, background: COLORS.background };
+}
+
+function drawSourceTable(doc, sourceSummary) {
+  const y = 221;
+  drawSectionTitle(doc, "Security Sources", PAGE.margin, y);
+  const rows = sourceSummary.filter((source) => !["skipped", "not_required", "not required"].includes(source.status)).slice(0, 10);
+  const rowHeight = 18;
+  const headerHeight = 20;
+  const tableY = y + 16;
+  const height = headerHeight + rows.length * rowHeight;
+  drawCard(doc, { x: PAGE.margin, y: tableY, width: PAGE.contentWidth, height: height + 1, background: COLORS.white, border: COLORS.border });
+  doc.rect(PAGE.margin, tableY, PAGE.contentWidth, headerHeight).fill(COLORS.background);
+  const sourceX = PAGE.margin + 9;
+  const statusX = PAGE.margin + 255;
+  const meaningfulX = PAGE.margin + 390;
+  drawText(doc, "SOURCE", sourceX, tableY + 7, 235, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  drawText(doc, "STATUS", statusX, tableY + 7, 110, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  drawText(doc, "MEANINGFUL", meaningfulX, tableY + 7, 95, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  rows.forEach((source, index) => {
+    const rowY = tableY + headerHeight + index * rowHeight;
+    if (index % 2 === 1) doc.rect(PAGE.margin, rowY, PAGE.contentWidth, rowHeight).fill("#FCFDFE");
+    drawText(doc, source.label, sourceX, rowY + 5, 235, { size: 6.8, color: COLORS.slate });
+    drawStatusPill(doc, humanize(source.status), statusX, rowY + 1.5, statusStyle(source.status), 96);
+    drawText(doc, source.meaningful ? "Yes" : "No", meaningfulX, rowY + 5, 95, { font: "Helvetica-Bold", size: 6.8, color: source.meaningful ? COLORS.green : COLORS.muted });
+  });
+}
+
+function drawLimitations(doc, limitations) {
+  const y = 448;
+  drawSectionTitle(doc, "Important Limitations", PAGE.margin, y);
+  const cardY = y + 16;
+  const height = 25 + limitations.slice(0, 4).length * 20;
+  drawCard(doc, { x: PAGE.margin, y: cardY, width: PAGE.contentWidth, height, background: COLORS.amberLight, border: COLORS.amberBorder });
+  let currentY = cardY + 10;
+  for (const limitation of limitations.slice(0, 4)) {
+    doc.circle(PAGE.margin + 13, currentY + 4, 1.8).fill(COLORS.amber);
+    const h = doc.font("Helvetica").fontSize(6.8).heightOfString(limitation, { width: PAGE.contentWidth - 34, lineGap: 1 });
+    drawText(doc, limitation, PAGE.margin + 23, currentY, PAGE.contentWidth - 34, { size: 6.8, color: COLORS.slate, lineGap: 1 });
+    currentY += Math.max(17, h + 2);
+  }
+}
+
+function drawPage2Bottom(doc) {
+  const y = 752;
+  drawText(doc, "This brief presents the available investigation evidence. External intelligence is not proof of compromise, successful exploitation, or internal impact without corroborating environmental telemetry.", PAGE.margin, y, PAGE.contentWidth, { size: 6.2, color: COLORS.lightText, lineGap: 1 });
 }
 
 function drawFooter(doc) {
   const range = doc.bufferedPageRange();
-  const total = range.count;
-
-  for (let i = range.start; i < range.start + range.count; i++) {
+  for (let i = range.start; i < range.start + range.count; i += 1) {
     doc.switchToPage(i);
-
-    doc
-      .save()
-      .strokeColor(COLORS.border)
-      .lineWidth(0.5)
-      .moveTo(PAGE.margin, CONTENT.footerY - 6)
-      .lineTo(PAGE.width - PAGE.margin, CONTENT.footerY - 6)
-      .stroke();
-
-    doc
-      .font("Helvetica")
-      .fontSize(7)
-      .fillColor(COLORS.lightText)
-      .text("Lakewest AI Security Assistant", PAGE.margin, CONTENT.footerY, {
-        width: 250,
-      });
-
-    doc
-      .font("Helvetica")
-      .fontSize(7)
-      .fillColor(COLORS.lightText)
-      .text(
-        `Page ${i + 1} of ${total}`,
-        PAGE.width - PAGE.margin - 120,
-        CONTENT.footerY,
-        {
-          width: 120,
-          align: "right",
-        }
-      );
-
-    doc.restore();
+    const y = PAGE.footerY;
+    doc.moveTo(PAGE.margin, y - 5).lineTo(PAGE.width - PAGE.margin, y - 5).strokeColor(COLORS.border).lineWidth(0.5).stroke();
+    drawText(doc, "Lakewest AI Security Assistant", PAGE.margin, y, 250, { size: 6.5, color: COLORS.lightText });
+    drawText(doc, `Page ${i - range.start + 1} of ${range.count}`, PAGE.width - PAGE.margin - 100, y, 100, { size: 6.5, color: COLORS.lightText, align: "right" });
   }
 }
-
-// ============================================================================
-// SECTION HEADERS
-// ============================================================================
-
-function drawSectionHeader(doc, title, subtitle) {
-  ensureSpace(doc, 36);
-
-  const y = doc.y;
-
-  // Small blue bar
-  doc.rect(PAGE.margin, y + 1, 3, 13).fill(COLORS.blue);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(10.5)
-    .fillColor(COLORS.navy)
-    .text(title, PAGE.margin + 11, y);
-
-  if (subtitle) {
-    doc
-      .font("Helvetica")
-      .fontSize(7.5)
-      .fillColor(COLORS.muted)
-      .text(subtitle, PAGE.margin + 11, y + 14, {
-        width: CONTENT.width - 11,
-      });
-    doc.y = y + 30;
-  } else {
-    doc.y = y + 19;
-  }
-
-  doc.y += SPACE.section - 8;
-}
-
-// ============================================================================
-// ASSESSMENT CARDS
-// ============================================================================
-
-function drawAssessmentCards(doc, externalThreat, environmentalRisk) {
-  ensureSpace(doc, 92);
-
-  const gap = 10;
-  const cardWidth = (CONTENT.width - gap) / 2;
-  const cardHeight = 74;
-  const y = doc.y;
-
-  const cards = [
-    {
-      x: PAGE.margin,
-      title: "EXTERNAL THREAT",
-      level: externalThreat,
-      caption: "Reputation & external intelligence",
-    },
-    {
-      x: PAGE.margin + cardWidth + gap,
-      title: "ENVIRONMENTAL RISK",
-      level: environmentalRisk,
-      caption: "Evidence of impact in your environment",
-    },
-  ];
-
-  for (const card of cards) {
-    const style = getLevelStyle(card.level);
-
-    doc
-      .roundedRect(card.x, y, cardWidth, cardHeight, 8)
-      .fillAndStroke(style.background, style.border);
-
-    // Left severity accent
-    doc.roundedRect(card.x, y, 4, cardHeight, 2).fill(style.color);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(7.5)
-      .fillColor(COLORS.muted)
-      .text(card.title, card.x + 14, y + 11);
-
-    // Level badge
-    const badgeText = displayLevel(card.level);
-    doc.font("Helvetica-Bold").fontSize(10);
-    const badgeTextWidth = doc.widthOfString(badgeText);
-    const badgeWidth = Math.max(70, badgeTextWidth + 26);
-    const badgeHeight = 22;
-
-    doc
-      .roundedRect(card.x + 14, y + 25, badgeWidth, badgeHeight, 5)
-      .fill(style.color);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(10)
-      .fillColor(COLORS.white)
-      .text(badgeText, card.x + 14, y + 31, {
-        width: badgeWidth,
-        align: "center",
-      });
-
-    doc
-      .font("Helvetica")
-      .fontSize(7)
-      .fillColor(COLORS.muted)
-      .text(card.caption, card.x + 14, y + 55, {
-        width: cardWidth - 28,
-      });
-  }
-
-  doc.y = y + cardHeight + 10;
-}
-
-function drawAssessmentSentence(doc, sentence) {
-  ensureSpace(doc, 44);
-
-  const y = doc.y;
-
-  doc.font("Helvetica").fontSize(9).fillColor(COLORS.slate);
-
-  const textHeight = doc.heightOfString(sentence, {
-    width: CONTENT.width - 26,
-    lineGap: 2,
-  });
-
-  const boxHeight = textHeight + 20;
-
-  doc
-    .roundedRect(PAGE.margin, y, CONTENT.width, boxHeight, 6)
-    .fillAndStroke(COLORS.blueLight, COLORS.blueBorder);
-
-  doc.rect(PAGE.margin, y, 3, boxHeight).fill(COLORS.blue);
-
-  doc
-    .font("Helvetica")
-    .fontSize(9)
-    .fillColor(COLORS.slate)
-    .text(sentence, PAGE.margin + 14, y + 10, {
-      width: CONTENT.width - 26,
-      lineGap: 2,
-    });
-
-  doc.y = y + boxHeight + 12;
-}
-
-// ============================================================================
-// ACTION PANEL
-// ============================================================================
-
-function drawActionPanel(doc, steps) {
-  ensureSpace(doc, 100);
-
-  const startY = doc.y;
-
-  doc
-    .roundedRect(PAGE.margin, startY, CONTENT.width, 4, 2)
-    .fill(COLORS.navy);
-
-  const panelY = startY + 4;
-  const paddingX = 14;
-  const paddingTop = 11;
-
-  let contentHeight = 0;
-
-  contentHeight += 14;
-  contentHeight += 8;
-
-  const fontSize = 8.5;
-  const stepHeight = 15;
-
-  doc.font("Helvetica").fontSize(fontSize);
-
-  for (const step of steps) {
-    const h = doc.heightOfString(step, {
-      width: CONTENT.width - paddingX * 2 - 18,
-      lineGap: 1.5,
-    });
-    contentHeight += Math.max(stepHeight, h + 4);
-  }
-
-  const totalHeight = paddingTop + contentHeight + 12;
-
-  doc
-    .roundedRect(PAGE.margin, panelY, CONTENT.width, totalHeight, 7)
-    .fillAndStroke(COLORS.white, COLORS.borderStrong);
-
-  doc.roundedRect(PAGE.margin, panelY, 4, totalHeight, 2).fill(COLORS.red);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(10)
-    .fillColor(COLORS.navy)
-    .text("WHAT TO DO NOW", PAGE.margin + paddingX, panelY + paddingTop);
-
-  let cy = panelY + paddingTop + 20;
-
-  steps.forEach((step, i) => {
-    const numberText = `${i + 1}.`;
-    const textX = PAGE.margin + paddingX + 16;
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(fontSize)
-      .fillColor(COLORS.blue)
-      .text(numberText, PAGE.margin + paddingX, cy + 1);
-
-    doc
-      .font("Helvetica")
-      .fontSize(fontSize)
-      .fillColor(COLORS.slate)
-      .text(step, textX, cy, {
-        width: CONTENT.width - paddingX * 2 - 18,
-        lineGap: 1.5,
-      });
-
-    const h = doc.heightOfString(step, {
-      width: CONTENT.width - paddingX * 2 - 18,
-      lineGap: 1.5,
-    });
-
-    cy += Math.max(stepHeight, h + 4);
-  });
-
-  doc.y = panelY + totalHeight + 12;
-}
-
-// ============================================================================
-// EVIDENCE ROWS (GROUPED, COMPACT)
-// ============================================================================
-
-function drawEvidenceGroups(doc, groups) {
-  if (!groups.length) {
-    ensureSpace(doc, 40);
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(COLORS.muted)
-      .text(
-        "No structured provider evidence was available.",
-        PAGE.margin,
-        doc.y,
-        {
-          width: CONTENT.width,
-        }
-      );
-    doc.y += 16;
-    return;
-  }
-
-  const labelWidth = 165;
-
-  for (const group of groups) {
-    const rowHeight = 16;
-    const headerHeight = 16;
-    const groupPad = 8;
-    const groupHeight =
-      headerHeight + group.rows.length * rowHeight + groupPad * 2;
-
-    ensureSpace(doc, groupHeight + 8);
-
-    const y = doc.y;
-
-    doc
-      .roundedRect(PAGE.margin, y, CONTENT.width, groupHeight, 6)
-      .fillAndStroke(COLORS.white, COLORS.border);
-
-    doc
-      .roundedRect(PAGE.margin, y, CONTENT.width, headerHeight + 2, 6)
-      .fill(COLORS.background);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(8.5)
-      .fillColor(COLORS.navy)
-      .text(group.provider, PAGE.margin + 11, y + 4);
-
-    let cy = y + headerHeight + 2;
-
-    for (const row of group.rows) {
-      doc
-        .moveTo(PAGE.margin + 11, cy)
-        .lineTo(PAGE.width - PAGE.margin - 11, cy)
-        .strokeColor(COLORS.border)
-        .lineWidth(0.4)
-        .stroke();
-
-      doc
-        .font("Helvetica")
-        .fontSize(8)
-        .fillColor(COLORS.muted)
-        .text(row.label, PAGE.margin + 11, cy + 4, {
-          width: labelWidth,
-        });
-
-      doc
-        .font(row.highlight ? "Helvetica-Bold" : "Helvetica")
-        .fontSize(8)
-        .fillColor(row.highlight ? COLORS.red : COLORS.navy)
-        .text(String(row.value), PAGE.margin + 11 + labelWidth, cy + 4, {
-          width: CONTENT.width - labelWidth - 22,
-          align: "right",
-        });
-
-      cy += rowHeight;
-    }
-
-    doc.y = y + groupHeight + SPACE.rowGap + 2;
-  }
-}
-
-// ============================================================================
-// ENVIRONMENT CHECK
-// ============================================================================
-
-function drawEnvironmentCheck(doc, { telemetryLabel, message }) {
-  ensureSpace(doc, 62);
-
-  const y = doc.y;
-  const paddingX = 12;
-  const paddingY = 10;
-
-  doc.font("Helvetica").fontSize(8.5);
-  const textHeight = doc.heightOfString(message, {
-    width: CONTENT.width - paddingX * 2,
-    lineGap: 2,
-  });
-
-  const boxHeight = textHeight + paddingY * 2 + 18;
-
-  const isUnknown = telemetryLabel === "Not provided";
-  const bg = isUnknown ? COLORS.amberLight : COLORS.greenLight;
-  const accent = isUnknown ? COLORS.amber : COLORS.green;
-  const border = isUnknown ? COLORS.amberBorder : COLORS.greenBorder;
-
-  doc
-    .roundedRect(PAGE.margin, y, CONTENT.width, boxHeight, 6)
-    .fillAndStroke(bg, border);
-
-  doc.rect(PAGE.margin, y, 3, boxHeight).fill(accent);
-
-  doc
-    .font("Helvetica")
-    .fontSize(7.5)
-    .fillColor(COLORS.muted)
-    .text("INTERNAL TELEMETRY", PAGE.margin + paddingX, y + paddingY);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(10)
-    .fillColor(accent)
-    .text(
-      telemetryLabel.toUpperCase(),
-      PAGE.margin + paddingX,
-      y + paddingY + 12
-    );
-
-  doc
-    .font("Helvetica")
-    .fontSize(8.5)
-    .fillColor(COLORS.slate)
-    .text(message, PAGE.margin + paddingX, y + paddingY + 30, {
-      width: CONTENT.width - paddingX * 2,
-      lineGap: 2,
-    });
-
-  doc.y = y + boxHeight + 12;
-}
-
-// ============================================================================
-// COMPACT METRIC GRID (CONFIDENCE + COVERAGE)
-// ============================================================================
-
-function drawCompactMetricGrid(doc, metrics) {
-  const columns = metrics.length <= 4 ? metrics.length : 4;
-  const gap = 7;
-
-  const cellWidth = (CONTENT.width - gap * (columns - 1)) / columns;
-  const cellHeight = 46;
-
-  const rows = Math.ceil(metrics.length / columns);
-  const totalHeight = rows * cellHeight + (rows - 1) * gap;
-
-  ensureSpace(doc, totalHeight + 8);
-
-  const startY = doc.y;
-
-  metrics.forEach((metric, i) => {
-    const row = Math.floor(i / columns);
-    const col = i % columns;
-
-    const x = PAGE.margin + col * (cellWidth + gap);
-    const y = startY + row * (cellHeight + gap);
-
-    const style = metric.level
-      ? getLevelStyle(metric.level)
-      : {
-          color: COLORS.blue,
-          background: COLORS.blueLight,
-          border: COLORS.blueBorder,
-        };
-
-    doc
-      .roundedRect(x, y, cellWidth, cellHeight, 6)
-      .fillAndStroke(COLORS.white, COLORS.border);
-
-    doc.roundedRect(x, y, cellWidth, 3, 1.5).fill(style.color);
-
-    doc
-      .font("Helvetica")
-      .fontSize(6.5)
-      .fillColor(COLORS.muted)
-      .text(metric.label.toUpperCase(), x + 9, y + 9, {
-        width: cellWidth - 18,
-      });
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(10)
-      .fillColor(metric.level ? style.color : COLORS.navy)
-      .text(String(metric.value), x + 9, y + 22, {
-        width: cellWidth - 18,
-      });
-  });
-
-  doc.y = startY + totalHeight + 12;
-}
-
-// ============================================================================
-// SOURCE TABLE
-// ============================================================================
-
-function drawSourceTable(doc, sources) {
-  if (!sources.length) {
-    doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(COLORS.muted)
-      .text("No security sources were recorded.", PAGE.margin, doc.y, {
-        width: CONTENT.width,
-      });
-    doc.y += 16;
-    return;
-  }
-
-  const rowHeight = 17;
-  const headerHeight = 16;
-  const statusColWidth = 90;
-
-  const totalHeight = headerHeight + sources.length * rowHeight + 8;
-
-  ensureSpace(doc, totalHeight + 8);
-
-  const y = doc.y;
-
-  doc
-    .roundedRect(PAGE.margin, y, CONTENT.width, totalHeight, 6)
-    .fillAndStroke(COLORS.white, COLORS.border);
-
-  doc
-    .roundedRect(PAGE.margin, y, CONTENT.width, headerHeight, 6)
-    .fill(COLORS.background);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(7)
-    .fillColor(COLORS.muted)
-    .text("SOURCE", PAGE.margin + 11, y + 5);
-
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(7)
-    .fillColor(COLORS.muted)
-    .text("STATUS", PAGE.width - PAGE.margin - statusColWidth - 11, y + 5, {
-      width: statusColWidth,
-      align: "right",
-    });
-
-  let cy = y + headerHeight;
-
-  for (const source of sources) {
-    doc
-      .moveTo(PAGE.margin + 11, cy)
-      .lineTo(PAGE.width - PAGE.margin - 11, cy)
-      .strokeColor(COLORS.border)
-      .lineWidth(0.4)
-      .stroke();
-
-    doc
-      .font("Helvetica")
-      .fontSize(8)
-      .fillColor(COLORS.navy)
-      .text(source.label, PAGE.margin + 11, cy + 4, {
-        width: CONTENT.width - statusColWidth - 30,
-      });
-
-    const status = String(source.status || "unknown").toUpperCase();
-    let badgeColor = COLORS.slate;
-    let badgeBg = COLORS.background;
-    let badgeBorder = COLORS.border;
-
-    const lower = status.toLowerCase();
-    if (lower === "success") {
-      badgeColor = COLORS.green;
-      badgeBg = COLORS.greenLight;
-      badgeBorder = COLORS.greenBorder;
-    } else if (lower === "partial") {
-      badgeColor = COLORS.amber;
-      badgeBg = COLORS.amberLight;
-      badgeBorder = COLORS.amberBorder;
-    } else if (
-      lower === "unauthorized" ||
-      lower === "error" ||
-      lower === "failed"
-    ) {
-      badgeColor = COLORS.red;
-      badgeBg = COLORS.redLight;
-      badgeBorder = COLORS.redBorder;
-    }
-
-    doc.font("Helvetica-Bold").fontSize(6.5);
-    const badgeW = Math.max(58, doc.widthOfString(status) + 16);
-    const badgeX = PAGE.width - PAGE.margin - 11 - badgeW;
-    const badgeH = 13;
-
-    doc
-      .roundedRect(badgeX, cy + 2, badgeW, badgeH, 3)
-      .fillAndStroke(badgeBg, badgeBorder);
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(6.5)
-      .fillColor(badgeColor)
-      .text(status, badgeX, cy + 5, {
-        width: badgeW,
-        align: "center",
-      });
-
-    cy += rowHeight;
-  }
-
-  doc.y = y + totalHeight + 12;
-}
-
-// ============================================================================
-// LIMITATIONS
-// ============================================================================
-
-function drawLimitations(doc, limitations) {
-  if (!limitations.length) return;
-
-  const bulletHeight = 14;
-  ensureSpace(doc, limitations.length * bulletHeight + 10);
-
-  let cy = doc.y;
-
-  for (const lim of limitations) {
-    doc.circle(PAGE.margin + 3, cy + 5, 1.8).fill(COLORS.amber);
-
-    doc
-      .font("Helvetica")
-      .fontSize(8)
-      .fillColor(COLORS.slate)
-      .text(lim, PAGE.margin + 12, cy, {
-        width: CONTENT.width - 12,
-        lineGap: 1.5,
-      });
-
-    const h = doc.heightOfString(lim, {
-      width: CONTENT.width - 12,
-      lineGap: 1.5,
-    });
-
-    cy += Math.max(bulletHeight, h + 4);
-  }
-
-  doc.y = cy + 8;
-}
-
-// ============================================================================
-// PDF BUFFER
-// ============================================================================
 
 function createPdfBuffer(build) {
   return new Promise((resolve, reject) => {
@@ -1901,14 +1036,12 @@ function createPdfBuffer(build) {
         Creator: "Lakewest AI Security Assistant",
       },
       bufferPages: true,
+      autoFirstPage: true,
     });
-
     const chunks = [];
-
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
-
     try {
       build(doc);
       drawFooter(doc);
@@ -1919,292 +1052,57 @@ function createPdfBuffer(build) {
   });
 }
 
-// ============================================================================
-// MAIN REPORT GENERATOR
-// ============================================================================
+async function generateSecurityReport({ investigation, metadata = {}, target, requestId } = {}) {
+  if (!investigation || typeof investigation !== "object") throw new Error("A canonical investigation object is required.");
 
-async function generateSecurityReport({
-  investigation,
-  metadata,
-  target,
-  requestId,
-} = {}) {
-  const inv = extractInvestigation({ investigation, metadata });
-
-  if (!inv) {
-    throw new Error("No security investigation was provided.");
-  }
-
-  const resolvedTarget = getTarget({
-    investigation: inv,
-    metadata,
-    target,
-  });
-
-  const targetType = detectTargetType({
-    investigation: inv,
-    metadata,
-    target: resolvedTarget,
-  });
-
-  // --------------------------------------------------------------------------
-  // AUTHORITATIVE SECURITY ASSESSMENT (UNCHANGED)
-  // --------------------------------------------------------------------------
-
-  const externalThreat = deriveExternalThreat(inv);
-  const environmentalRisk = deriveEnvironmentalRisk(inv);
-  const externalConfidence = deriveExternalConfidence(inv);
-  const environmentalConfidence = deriveEnvironmentalConfidence(inv);
-  const overallConfidence = deriveOverallConfidence(inv);
-  const coverage = deriveCoverage(inv);
-  const internalTelemetry = detectInternalTelemetry(inv);
-  const meaningfulCount = meaningfulSources(inv).length;
-  const consultedCount = getSources(inv).length;
-
-  const reportId = requestId || generateReportId();
+  const resolvedTarget = getTarget({ investigation, metadata, target });
+  const targetType = detectTargetType({ investigation, metadata, target: resolvedTarget });
+  const externalThreat = deriveExternalThreat(investigation);
+  const environmentalRisk = deriveEnvironmentalRisk(investigation);
+  const confidence = deriveOverallConfidence(investigation);
+  const confidenceScore = deriveConfidenceScore(investigation);
+  const confidenceLevel = deriveConfidenceLevel(investigation);
+  const riskScore = deriveRiskScore(investigation);
+  const coverage = deriveCoverage(investigation);
+  const sourceSummary = buildSourceSummary(investigation);
+  const whyThisMatters = buildWhyThisMatters(investigation);
+  const evidenceGroups = buildEvidenceGroups(investigation);
+  const recommendations = buildRecommendations({ externalThreat, environmentalRisk });
+  const limitations = buildKeyLimitations({ investigation, environmentalRisk });
+  const assessment = buildAssessmentSentence({ externalThreat, environmentalRisk });
+  const reportId = requestId || metadata.requestId || crypto.randomUUID();
   const generatedAt = new Date();
 
-  // --------------------------------------------------------------------------
-  // DERIVED PRESENTATION CONTENT
-  // --------------------------------------------------------------------------
-
-  const assessmentSentence = buildAssessmentSentence({
-    externalThreat,
-    environmentalRisk,
-  });
-
-  const whyThisMatters = buildWhyThisMatters({
-    investigation: inv,
-    externalThreat,
-  });
-
-  const environmentCheck = buildEnvironmentCheck({
-    investigation: inv,
-    environmentalRisk,
-  });
-
-  const recommendations = buildRecommendations({
-    target: resolvedTarget,
-    externalThreat,
-    environmentalRisk,
-  });
-
-  const evidenceGroups = collectEvidenceRows(inv);
-
-  const keyLimitations = buildKeyLimitations({
-    investigation: inv,
-    environmentalRisk,
-  });
-
-  const sources = buildSourceSummary(inv);
-
-  // --------------------------------------------------------------------------
-  // BUILD PDF
-  // --------------------------------------------------------------------------
-
   return createPdfBuffer((doc) => {
-    // ----------------------------------------------------------------------
-    // HEADER + ASSESSMENT
-    // ----------------------------------------------------------------------
-
-    drawHeader(doc, {
-      target: resolvedTarget,
-      targetType,
-      reportId,
-      generatedAt,
-    });
-
+    drawHeader(doc, { target: resolvedTarget, targetType, reportId, generatedAt });
     drawAssessmentCards(doc, externalThreat, environmentalRisk);
-
-    drawAssessmentSentence(doc, assessmentSentence);
-
-    // ----------------------------------------------------------------------
-    // ACTION REQUIRED
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "What To Do Now",
-      "Immediate next steps for the analyst"
-    );
-
+    drawMetricRow(doc, riskScore, confidenceScore, confidenceLevel, coverage);
+    drawText(doc, "ASSESSMENT", PAGE.margin, 310, PAGE.contentWidth, { font: "Helvetica-Bold", size: 8.5, color: COLORS.navy });
+    drawText(doc, assessment, PAGE.margin, 322, PAGE.contentWidth, { size: 7.4, color: COLORS.slate, lineGap: 1 });
     drawActionPanel(doc, recommendations);
-
-    // ----------------------------------------------------------------------
-    // WHY THIS MATTERS
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "Why This Matters",
-      "External signal vs. environmental impact"
-    );
-
-    ensureSpace(doc, 50);
-
-    {
-      const y = doc.y;
-      doc.font("Helvetica").fontSize(8.5);
-      const textHeight = doc.heightOfString(whyThisMatters, {
-        width: CONTENT.width - 24,
-        lineGap: 2,
-      });
-      const boxHeight = textHeight + 18;
-
-      doc
-        .roundedRect(PAGE.margin, y, CONTENT.width, boxHeight, 6)
-        .fillAndStroke(COLORS.background, COLORS.border);
-
-      doc.rect(PAGE.margin, y, 3, boxHeight).fill(COLORS.blue);
-
-      doc
-        .font("Helvetica")
-        .fontSize(8.5)
-        .fillColor(COLORS.slate)
-        .text(whyThisMatters, PAGE.margin + 13, y + 9, {
-          width: CONTENT.width - 24,
-          lineGap: 2,
-        });
-
-      doc.y = y + boxHeight + 12;
-    }
-
-    // ----------------------------------------------------------------------
-    // KEY EVIDENCE
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "Key Evidence",
-      "Most relevant provider findings (humanized)"
-    );
-
+    drawWhyThisMatters(doc, whyThisMatters);
     drawEvidenceGroups(doc, evidenceGroups);
 
-    // ----------------------------------------------------------------------
-    // ENVIRONMENT CHECK
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "Environment Check",
-      "Whether internal telemetry was available"
-    );
-
-    drawEnvironmentCheck(doc, environmentCheck);
-
-    // ----------------------------------------------------------------------
-    // CONFIDENCE + COVERAGE
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "Confidence & Coverage",
-      "Strength and breadth of available evidence"
-    );
-
-    drawCompactMetricGrid(doc, [
-      {
-        label: "External confidence",
-        value: displayLevel(externalConfidence),
-        level: externalConfidence,
-      },
-      {
-        label: "Environmental confidence",
-        value: displayLevel(environmentalConfidence),
-        level: environmentalConfidence,
-      },
-      {
-        label: "Overall confidence",
-        value: displayLevel(overallConfidence),
-        level: overallConfidence,
-      },
-      {
-        label: "Coverage",
-        value: String(coverage).toUpperCase(),
-      },
-    ]);
-
-    // Sources line
-    ensureSpace(doc, 24);
-    doc
-      .font("Helvetica")
-      .fontSize(8)
-      .fillColor(COLORS.muted)
-      .text(
-        `Sources: ${meaningfulCount} meaningful / ${consultedCount} consulted`,
-        PAGE.margin,
-        doc.y,
-        { width: CONTENT.width }
-      );
-    doc.y += 16;
-
-    // ----------------------------------------------------------------------
-    // SECURITY SOURCES TABLE
-    // ----------------------------------------------------------------------
-
-    drawSectionHeader(
-      doc,
-      "Security Sources",
-      "Provider availability and status"
-    );
-
-    drawSourceTable(doc, sources);
-
-    // ----------------------------------------------------------------------
-    // IMPORTANT LIMITATIONS
-    // ----------------------------------------------------------------------
-
-    if (keyLimitations.length) {
-      drawSectionHeader(
-        doc,
-        "Important Limitations",
-        "Context to consider before taking action"
-      );
-
-      drawLimitations(doc, keyLimitations);
-    }
-
-    // ----------------------------------------------------------------------
-    // FINAL DISCLAIMER (compact)
-    // ----------------------------------------------------------------------
-
-    ensureSpace(doc, 44);
-
-    {
-      const y = doc.y;
-      const disclaimer =
-        "External reputation does not confirm compromise. Internal security logs may be required to determine whether your environment was affected.";
-
-      doc.font("Helvetica").fontSize(7.5);
-      const h = doc.heightOfString(disclaimer, {
-        width: CONTENT.width - 20,
-        lineGap: 1.5,
-      });
-      const boxHeight = h + 18;
-
-      doc
-        .roundedRect(PAGE.margin, y, CONTENT.width, boxHeight, 6)
-        .fillAndStroke(COLORS.navy, COLORS.navy);
-
-      doc
-        .font("Helvetica")
-        .fontSize(7.5)
-        .fillColor("#CBD5E1")
-        .text(disclaimer, PAGE.margin + 10, y + 9, {
-          width: CONTENT.width - 20,
-          lineGap: 1.5,
-        });
-
-      doc.y = y + boxHeight + 6;
-    }
+    doc.addPage();
+    drawEnvironmentCheck(doc, environmentalRisk);
+    drawConfidenceCoveragePage2(doc, confidence, confidenceScore, confidenceLevel, coverage);
+    drawSourceTable(doc, sourceSummary);
+    drawLimitations(doc, limitations);
+    drawCrossSourceAnalysis(doc, investigation);
+    drawPage2Bottom(doc);
   });
 }
 
-// ============================================================================
-// EXPORT
-// ============================================================================
+class SecurityReportGenerator {
+  async generateSecurityReport(options = {}) {
+    return generateSecurityReport(options);
+  }
+}
 
-module.exports = {
-  generateSecurityReport,
-};
+module.exports = SecurityReportGenerator;
+module.exports.SecurityReportGenerator = SecurityReportGenerator;
+module.exports.generateSecurityReport = generateSecurityReport;
+
+// A tiny PDFKit measurement document is reused only for height calculations.
+// It is never emitted as a report page.
+measureTextHeight.doc = new PDFDocument({ size: "A4", margin: 0, autoFirstPage: false });

@@ -116,6 +116,30 @@ function successResult(provider, findings) {
   };
 }
 
+function normalizeHttpUrl(value, { allowBareDomain = true } = {}) {
+  if (typeof value !== "string") return null;
+  let candidate = value.trim().replace(/[),.;]+$/, "");
+  if (!candidate || candidate.length > 2048) return null;
+  if (allowBareDomain && !/^https?:\/\//i.test(candidate)) {
+    candidate = `https://${candidate}`;
+  }
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeDomain(value) {
+  if (typeof value !== "string") return null;
+  const candidate = value.trim().replace(/^https?:\/\//i, "").split("/")[0].toLowerCase();
+  if (!candidate || candidate.length > 253) return null;
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(candidate)) return null;
+  return candidate;
+}
+
 function compactObject(value) {
   if (!value || typeof value !== "object") return {};
   return Object.fromEntries(Object.entries(value).filter(([, v]) =>
@@ -129,4 +153,6 @@ module.exports = {
   publicResult,
   successResult,
   compactObject,
+  normalizeHttpUrl,
+  normalizeDomain,
 };

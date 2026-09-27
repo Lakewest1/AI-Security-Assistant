@@ -1574,70 +1574,110 @@ function sourceHasMeaningfulEvidence(source) {
   return !!source && source.quality?.meaningful === true;
 }
 
+
 function deriveFinalInvestigationAssessment(investigation) {
   const sources = Array.isArray(investigation?.sources) ? investigation.sources : [];
-  const meaningfulSources = sources.filter(sourceHasMeaningfulEvidence);
-  const meaningfulProviders = new Set(
-    meaningfulSources.map((source) => String(source.provider || "").trim().toLowerCase()).filter(Boolean)
-  );
-  const internalSources = meaningfulSources.filter(isInternalTelemetrySource);
-  const internalTelemetryExists = internalSources.length > 0;
 
-  const externalReputationFindings = (Array.isArray(investigation?.findings) ? investigation.findings : [])
-    .filter((finding) => finding && finding.evidenceType === "reputation" &&
-      Array.isArray(finding.providers) && finding.providers.some((provider) => EXTERNAL_INTELLIGENCE_PROVIDERS.has(String(provider).toLowerCase())));
-  const externalReputationElevated = externalReputationFindings.some((finding) =>
-    String(finding.severity || "").toLowerCase() === "elevated" ||
-    /elevated|malicious|abuse confidence/i.test(String(finding.description || ""))
-  );
+  // The Investigation object is the canonical semantic source of truth.
+  // This function is a projection for the AI response/report consumers only.
+  // It MUST NOT derive a new threat/risk algorithm from provider descriptions.
+  const externalThreat = String(
+    investigation?.risk?.externalThreat ??
+    investigation?.risk?.external_threat ??
+    "unknown"
+  ).trim().toLowerCase() || "unknown";
 
-  const externalThreat = externalReputationElevated ? "elevated" :
-    meaningfulSources.some((source) => EXTERNAL_INTELLIGENCE_PROVIDERS.has(String(source.provider || "").toLowerCase())) ? "unknown" : "unknown";
+  const environmentalRisk = String(
+    investigation?.risk?.environmentalRisk ??
+    investigation?.risk?.environmental_risk ??
+    "unknown"
+  ).trim().toLowerCase() || "unknown";
 
-  let environmentalRisk = "unknown";
-  if (internalTelemetryExists) {
-    const environmentalFindings = (Array.isArray(investigation?.findings) ? investigation.findings : [])
-      .filter((finding) => finding && (finding.evidenceType === "environmental" || finding.evidenceType === "behavioral"));
-    const direct = environmentalFindings.some((finding) => String(finding.strength || "").toLowerCase() === "direct");
-    const corroborated = environmentalFindings.some((finding) => String(finding.strength || "").toLowerCase() === "corroborated");
-    environmentalRisk = direct ? "elevated" : corroborated ? "elevated" : "unknown";
+  const externalIntelligenceConfidence = String(
+    investigation?.confidence?.externalIntelligence ??
+    investigation?.confidence?.externalConfidence ??
+    "low"
+  ).trim().toLowerCase() || "low";
+
+  const environmentalAssessmentConfidence = String(
+    investigation?.confidence?.environmentalAssessment ??
+    investigation?.confidence?.environmentalConfidence ??
+    "unknown"
+  ).trim().toLowerCase() || "unknown";
+
+  const overallConfidence = String(
+    investigation?.confidence?.level ??
+    investigation?.confidence?.overall ??
+    "unknown"
+  ).trim().toLowerCase() || "unknown";
+
+  const consultedSources = [];
+  const meaningfulProviders = new Set();
+  const meaningfulSources = [];
+
+  for (const source of sources) {
+    const status = String(source?.status || "").trim().toLowerCase();
+    const provider = String(source?.provider || "").trim().toLowerCase();
+    if (!provider || ["skipped", "not_required", "not required"].includes(status)) continue;
+
+    if (!consultedSources.includes(provider)) consultedSources.push(provider);
+    if (source?.quality?.meaningful === true) {
+      meaningfulProviders.add(provider);
+      meaningfulSources.push(source);
+    }
   }
 
-  const failedOrNonMeaningful = sources.some((source) => {
-    const status = String(source?.status || "").toLowerCase();
-    return !["success"].includes(status) || !sourceHasMeaningfulEvidence(source);
+  const meaningfulCoverage = `${meaningfulProviders.size}/${consultedSources.length}`;
+  const riskCoverage = String(
+    investigation?.risk?.evidenceCoverage ??
+    investigation?.risk?.evidence_coverage ??
+    ""
+  ).trim().toLowerCase();
+  const evidenceCoverage = riskCoverage || (
+    meaningfulProviders.size === 0 ? "none" :
+    meaningfulProviders.size >= 2 ? "broad" : "limited"
+  );
+
+  const internalTelemetryExists = meaningfulSources.some((source) => {
+    const provider = String(source?.provider || "").trim().toLowerCase();
+    const sourceType = String(source?.sourceType || source?.category || source?.evidenceSource || "").trim().toLowerCase();
+    return !EXTERNAL_INTELLIGENCE_PROVIDERS.has(provider) && /^(internal|environmental|telemetry)$/.test(sourceType);
   });
-  const evidenceCoverage = meaningfulSources.length === 0 ? "none" :
-    meaningfulSources.length >= 2 ? "broad" : "limited";
-  const sourceAvailability = failedOrNonMeaningful ? "partial" : "complete";
-
-  const externalIntelligenceConfidence = externalThreat === "elevated"
-    ? ((new Set(externalReputationFindings.flatMap((finding) => finding.providers || [])).size >= 2) ? "high" : "moderate")
-    : meaningfulSources.length >= 2 ? "moderate" : "low";
-  const environmentalAssessmentConfidence = internalTelemetryExists ? "moderate" : "low";
-
-  const overallConfidence = externalIntelligenceConfidence === "high" && environmentalAssessmentConfidence === "low"
-    ? "high_external_low_environmental"
-    : externalIntelligenceConfidence === "high" && environmentalAssessmentConfidence !== "low"
-      ? "high"
-      : "moderate";
 
   const overallConfidenceText = overallConfidence === "high_external_low_environmental"
     ? "High confidence in the external intelligence assessment; low confidence regarding environmental impact because no internal telemetry was supplied."
     : overallConfidence === "high"
-      ? "High confidence based on the available external intelligence and environmental evidence."
-      : "Confidence is limited by the available evidence and source coverage.";
+      ? "High confidence based on the canonical investigation assessment."
+      : overallConfidence === "moderate"
+        ? "Confidence is limited by the canonical evidence and source coverage."
+        : "Confidence is limited by the canonical investigation assessment.";
+
+  const nullableNumber = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
 
   return {
     meaningfulSources,
     meaningfulProviders,
     meaningfulProviderCount: meaningfulProviders.size,
-    internalSources,
+    consultedSources,
+    consultedSourceCount: consultedSources.length,
+    meaningfulCoverage,
     internalTelemetryExists,
     externalThreat,
     environmentalRisk,
+    riskScore: nullableNumber(investigation?.risk?.score),
+    confidenceScore: nullableNumber(investigation?.confidence?.score),
+    confidenceLevel: overallConfidence,
+    externalIntelligenceConfidenceScore: nullableNumber(investigation?.confidence?.externalIntelligenceScore),
+    environmentalAssessmentConfidenceScore: nullableNumber(investigation?.confidence?.environmentalAssessmentScore),
     evidenceCoverage,
-    sourceAvailability,
+    sourceAvailability: sources.some((source) => {
+      const status = String(source?.status || "").trim().toLowerCase();
+      return !["success"].includes(status) && !["skipped", "not_required", "not required"].includes(status);
+    }) ? "partial" : "complete",
     externalIntelligenceConfidence,
     environmentalAssessmentConfidence,
     overallConfidence,
@@ -1661,7 +1701,7 @@ function renderInvestigationReport(investigation) {
   lines.push(`### Investigation Status\n${investigation.status || "unknown"}`);
 
   const statusIcon = (status) => status === "success" ? "✓" : (["not_required","skipped"].includes(status) ? "—" : "⚠");
-  const providerLabels = {virustotal:"VirusTotal",abuseipdb:"AbuseIPDB",urlscan:"URLScan",shodan:"Shodan",ipinfo:"IPinfo",censys:"Censys",securitytrails:"SecurityTrails",mozilla_observatory:"Mozilla Observatory",viewdns:"ViewDNS",hibp:"Have I Been Pwned"};
+  const providerLabels = {virustotal:"VirusTotal",abuseipdb:"AbuseIPDB",urlscan:"URLScan",shodan:"Shodan",ipinfo:"IPinfo",censys:"Censys",securitytrails:"SecurityTrails",mozilla_observatory:"Mozilla Observatory",viewdns:"ViewDNS",hibp:"Have I Been Pwned",phishing_database:"Phishing.Database",urlhaus:"URLhaus",threatfox:"ThreatFox",phishtank:"PhishTank","google-web-risk":"Google Web Risk"};
   const renderValue = (value) => Array.isArray(value) ? value.map((item) => typeof item === "object" ? JSON.stringify(item) : String(item)).join(", ") : (typeof value === "object" && value !== null ? JSON.stringify(value) : String(value));
 
   lines.push("### Threat Intelligence Sources");
@@ -1692,8 +1732,28 @@ function renderInvestigationReport(investigation) {
   );
   if (censysSource) {
     const services = censysSource.findings?.services;
-    const serviceText = Array.isArray(services) && services.length ? `multiple services, including ${services.some((service) => /80/.test(JSON.stringify(service))) ? "TCP/80" : "observed TCP services"}` : "multiple observed services";
-    lines.push(`- [network; direct] Censys observed ${serviceText} on the host, corroborating the Tor-exit infrastructure context without by itself establishing malicious activity. (Censys)`);
+    const serviceRows = Array.isArray(services) ? services.filter(Boolean) : [];
+    if (serviceRows.length) {
+      const rendered = serviceRows.slice(0, 3).map((service) => {
+        const text = JSON.stringify(service);
+        const port = service?.port ?? service?.portNumber;
+        const transport = service?.transportProtocol || service?.transport;
+        const software = service?.software?.product || service?.software?.name || service?.product || service?.name;
+        const torOrProxy = /tor|proxy_server/i.test(text);
+        const parts = [];
+        if (port !== undefined) parts.push(`TCP/${port}`);
+        else if (transport) parts.push(String(transport).toUpperCase());
+        if (software) parts.push(String(software));
+        if (torOrProxy) parts.push("Tor/proxy indicator");
+        return parts.join(" · ") || "observed service";
+      });
+      lines.push(`- [network; contextual] Censys observed ${rendered.join("; ")} on the host. These infrastructure observations do not by themselves establish malicious activity. (Censys)`);
+    } else {
+      const hasInfrastructureContext = censysSource.findings?.autonomousSystem || censysSource.findings?.location || censysSource.findings?.dns;
+      if (hasInfrastructureContext) {
+        lines.push(`- [network; contextual] Censys returned infrastructure, ownership, or DNS observations for the target. These observations do not by themselves establish malicious activity. (Censys)`);
+      }
+    }
   }
   lines.push("### Correlated Evidence");
   if (investigation.correlations?.length) for (const item of investigation.correlations) lines.push(`- [${item.evidenceType || "correlation"}; ${item.strength || item.confidence || "corroborated"}] ${item.description}`);
@@ -1711,6 +1771,7 @@ function renderInvestigationReport(investigation) {
   // derived here from normalized meaningful sources, never from LLM text.
   lines.push("### External Threat Assessment");
   lines.push(`- External threat: ${assessment.externalThreat}`);
+  lines.push(`- Risk score: ${assessment.riskScore === null ? "unknown" : `${assessment.riskScore}/100`}`);
 
   lines.push("### Environmental Risk");
   lines.push(`- Environmental risk: ${assessment.environmentalRisk}`);
@@ -1719,12 +1780,14 @@ function renderInvestigationReport(investigation) {
   lines.push("### Evidence Coverage");
   lines.push(`- ${assessment.evidenceCoverage}`);
   lines.push(`- Source availability: ${assessment.sourceAvailability}`);
-  lines.push(`- Meaningful providers: ${assessment.meaningfulProviderCount} / ${sourcesForCount(investigation)}`);
+  lines.push(`- Meaningful coverage: ${assessment.meaningfulCoverage}`);
+  lines.push(`- Consulted sources: ${assessment.consultedSourceCount}`);
 
   lines.push("### Confidence");
   lines.push(`- External intelligence confidence: ${assessment.externalIntelligenceConfidence}`);
   lines.push(`- Environmental assessment confidence: ${assessment.environmentalAssessmentConfidence}`);
   lines.push(`- Overall investigation confidence: ${assessment.overallConfidenceText}`);
+  lines.push(`- Confidence score: ${assessment.confidenceScore === null ? "unknown" : `${assessment.confidenceScore}%`} — ${assessment.confidenceLevel}`);
   lines.push(`- ${assessment.meaningfulSources.length} meaningful source result(s) across ${assessment.meaningfulProviderCount} provider(s).`);
 
   lines.push("### MITRE ATT&CK");
@@ -1883,4 +1946,5 @@ module.exports = {
   hasUnsafeUnstructuredContent,
   buildStructuredAssessmentFromRawEvidence,
   renderInvestigationReport,
+  deriveFinalInvestigationAssessment,
 };

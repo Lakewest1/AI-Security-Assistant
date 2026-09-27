@@ -54,13 +54,14 @@ import {
   X,
   Minimize2,
   FileText,
+  Pencil,
 } from "lucide-react";
 
 import "./App.css";
 
 /* ==========================================================================
-   CONFIGURATION
-   ========================================================================== */
+CONFIGURATION
+========================================================================== */
 
 const API_URL =
   import.meta.env.VITE_API_URL ||
@@ -93,8 +94,8 @@ const CLEARED_GREETING =
   "Chat cleared. Ready for a new security or safety question.";
 
 /* ==========================================================================
-   AGENT ROUTING
-   ========================================================================== */
+AGENT ROUTING
+========================================================================== */
 
 const IPV4_REGEX =
   /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
@@ -171,8 +172,8 @@ function shouldUseAgent(text) {
 }
 
 /* ==========================================================================
-   MARKDOWN NORMALIZATION
-   ========================================================================== */
+MARKDOWN NORMALIZATION
+========================================================================== */
 
 function normalizeMarkdown(text) {
   if (!text || typeof text !== "string") {
@@ -219,8 +220,8 @@ function normalizeMarkdown(text) {
 }
 
 /* ==========================================================================
-   REMOVE UNWANTED SCHEMA LABELS
-   ========================================================================== */
+REMOVE UNWANTED SCHEMA LABELS
+========================================================================== */
 
 const SCHEMA_LABELS = [
   "WHY IT MATTERS FOR AN S3 BUCKET",
@@ -260,7 +261,7 @@ function stripSchemaLabels(text) {
     .join("|");
 
   const standaloneLabel = new RegExp(
-    `^(#{1,6}\\s+|[-*+]\\s+|\\*\\*\\s*)?(${labelAlternation})\\s*:?\\s*(\\*\\*)?\\s*$`,
+    `^(#{1,6}\\s+|[-*+]\\s+|\\*\\*\\s*)?(${labelAlternation})\\s*:??\\s*(\\*\\*)?\\s*$`,
     "i"
   );
 
@@ -293,8 +294,8 @@ function stripSchemaLabels(text) {
 }
 
 /* ==========================================================================
-   GREETING
-   ========================================================================== */
+GREETING
+========================================================================== */
 
 function buildGreetingMessage(
   content = INITIAL_GREETING
@@ -309,8 +310,8 @@ function buildGreetingMessage(
 }
 
 /* ==========================================================================
-   VISUAL VIEWPORT
-   ========================================================================== */
+VISUAL VIEWPORT
+========================================================================== */
 
 function useVisualViewport() {
   const [viewport, setViewport] =
@@ -427,8 +428,8 @@ function useVisualViewport() {
 }
 
 /* ==========================================================================
-   SUGGESTIONS
-   ========================================================================== */
+SUGGESTIONS
+========================================================================== */
 
 const SUGGESTION_CARDS = [
   {
@@ -482,8 +483,8 @@ const SUGGESTION_CARDS = [
 ];
 
 /* ==========================================================================
-   NODE TO TEXT
-   ========================================================================== */
+NODE TO TEXT
+========================================================================== */
 
 function nodeToText(node) {
   if (
@@ -520,8 +521,8 @@ function nodeToText(node) {
 }
 
 /* ==========================================================================
-   REPORT FORMATTING
-   ========================================================================== */
+REPORT FORMATTING
+========================================================================== */
 
 const LEVEL_TONE = {
   low: "tone-good",
@@ -557,7 +558,7 @@ const TONE_ICON = {
 };
 
 const SOURCE_LINE_RE_ICON_FIRST =
-  /^([✓⚠])\s*([A-Za-z0-9][\w .+-]*?)\s*[—-]\s*([A-Za-z][\w ]*)$/;
+  /^([✓⚠])\s*\*?([A-Za-z0-9][\w .+-]*?)\s*\*?[—-]\s*\*?([A-Za-z][\w ]*)\*?$/;
 
 const SOURCE_LINE_RE_NAME_FIRST =
   /^([A-Za-z0-9][\w .+-]*?)\s*:\s*([✓⚠])\s*([A-Za-z][\w ]*)$/;
@@ -572,8 +573,8 @@ const KEY_VALUE_LINE_RE =
   /^([A-Za-z][\w .]{1,40}?)\s*:\s*(.+)$/;
 
 /* ==========================================================================
-   FORMATTING HELPERS
-   ========================================================================== */
+FORMATTING HELPERS
+========================================================================== */
 
 function tryFormatEpoch(value) {
   if (!/^\d{9,13}$/.test(value.trim())) {
@@ -639,8 +640,8 @@ function tryFormatInteger(value) {
 }
 
 /* ==========================================================================
-   STATUS PILL
-   ========================================================================== */
+STATUS PILL
+========================================================================== */
 
 function StatusPill({
   tone,
@@ -666,8 +667,8 @@ function StatusPill({
 }
 
 /* ==========================================================================
-   SOURCE LINE
-   ========================================================================== */
+SOURCE LINE
+========================================================================== */
 
 function renderSourceLine(text) {
   const iconFirst = text.match(
@@ -746,8 +747,8 @@ function renderSourceLine(text) {
 }
 
 /* ==========================================================================
-   CONFIDENCE LINE
-   ========================================================================== */
+CONFIDENCE LINE
+========================================================================== */
 
 function renderConfidenceLine(text) {
   const match = text.match(
@@ -781,8 +782,8 @@ function renderConfidenceLine(text) {
 }
 
 /* ==========================================================================
-   BARE LEVEL
-   ========================================================================== */
+BARE LEVEL
+========================================================================== */
 
 function renderBareLevel(text) {
   if (!BARE_LEVEL_RE.test(text)) {
@@ -803,8 +804,8 @@ function renderBareLevel(text) {
 }
 
 /* ==========================================================================
-   KEY/VALUE EVIDENCE
-   ========================================================================== */
+KEY/VALUE EVIDENCE
+========================================================================== */
 
 function renderKeyValueLine(text) {
   const match = text.match(
@@ -867,8 +868,8 @@ function renderKeyValueLine(text) {
 }
 
 /* ==========================================================================
-   INVESTIGATION SECTION ICONS
-   ========================================================================== */
+INVESTIGATION SECTION ICONS
+========================================================================== */
 
 const SECTION_ICONS = [
   [/^target type$/i, Tag],
@@ -925,8 +926,8 @@ function iconForSectionTitle(title) {
 }
 
 /* ==========================================================================
-   INVESTIGATION HEADING
-   ========================================================================== */
+INVESTIGATION HEADING
+========================================================================== */
 
 const InvestigationHeading = memo(
   function InvestigationHeading({
@@ -971,8 +972,8 @@ const InvestigationHeading = memo(
 );
 
 /* ==========================================================================
-   INVESTIGATION LIST ITEM
-   ========================================================================== */
+INVESTIGATION LIST ITEM
+========================================================================== */
 
 const InvestigationListItem = memo(
   function InvestigationListItem({
@@ -1004,8 +1005,8 @@ const InvestigationListItem = memo(
 );
 
 /* ==========================================================================
-   INVESTIGATION PARAGRAPH
-   ========================================================================== */
+INVESTIGATION PARAGRAPH
+========================================================================== */
 
 const InvestigationParagraph = memo(
   function InvestigationParagraph({
@@ -1037,8 +1038,8 @@ const InvestigationParagraph = memo(
 );
 
 /* ==========================================================================
-   RESPONSIVE TABLE
-   ========================================================================== */
+RESPONSIVE TABLE
+========================================================================== */
 
 const ResponsiveTable = memo(
   function ResponsiveTable({
@@ -1267,8 +1268,8 @@ const ResponsiveTable = memo(
 );
 
 /* ==========================================================================
-   CODE BLOCK
-   ========================================================================== */
+CODE BLOCK
+========================================================================== */
 
 const CodeBlock = memo(
   function CodeBlock({
@@ -1377,8 +1378,8 @@ const CodeBlock = memo(
 );
 
 /* ==========================================================================
-   MESSAGE ITEM
-   ========================================================================== */
+MESSAGE ITEM
+========================================================================== */
 
 const MessageItem = memo(
   function MessageItem({
@@ -1388,6 +1389,12 @@ const MessageItem = memo(
     onCopy,
     onRetry,
     onDownloadReport,
+    isEditing,
+    editDraft,
+    onEditDraftChange,
+    onStartEdit,
+    onSaveEdit,
+    onCancelEdit,
   }) {
     const isUser =
       message.role === "user";
@@ -1597,6 +1604,62 @@ const MessageItem = memo(
                 </div>
               ) : null}
             </>
+          ) : isUser && isEditing ? (
+            <div className="message-edit">
+              <textarea
+                className="message-edit-textarea"
+                value={editDraft}
+                onChange={(event) =>
+                  onEditDraftChange(
+                    event.target.value
+                  )
+                }
+                rows={Math.min(
+                  8,
+                  Math.max(
+                    1,
+                    (editDraft || "").split(
+                      "\n"
+                    ).length
+                  )
+                )}
+                aria-label="Edit message"
+                autoFocus
+              />
+
+              <div className="message-edit-actions">
+                <button
+                  type="button"
+                  className="message-action-btn"
+                  onClick={() =>
+                    onSaveEdit(
+                      message.id
+                    )
+                  }
+                  disabled={
+                    !(
+                      editDraft || ""
+                    ).trim()
+                  }
+                  aria-label="Save edit"
+                  title="Save"
+                >
+                  <Check size={13} />
+                  <span>Save</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="message-action-btn"
+                  onClick={onCancelEdit}
+                  aria-label="Cancel edit"
+                  title="Cancel"
+                >
+                  <X size={13} />
+                  <span>Cancel</span>
+                </button>
+              </div>
+            </div>
           ) : (
             <div className="plain-message">
               {message.displayContent}
@@ -1608,7 +1671,6 @@ const MessageItem = memo(
           !message.isError &&
           message.fullContent && (
             <div className="message-actions">
-
               {/* ============================================================
                   DOWNLOAD SECURITY REPORT
                   ============================================================ */}
@@ -1677,6 +1739,48 @@ const MessageItem = memo(
             </div>
           )}
 
+        {/* ============================================================
+            USER MESSAGE ACTIONS — Copy + Edit
+            ============================================================ */}
+
+        {isUser &&
+          !isEditing &&
+          message.fullContent && (
+            <div className="message-actions">
+              <button
+                type="button"
+                className="message-action-btn"
+                onClick={() =>
+                  onCopy(
+                    message.fullContent,
+                    index
+                  )
+                }
+                aria-label="Copy message"
+                title="Copy message"
+              >
+                {copiedMessageId ===
+                index ? (
+                  <Check size={13} />
+                ) : (
+                  <Copy size={13} />
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="message-action-btn"
+                onClick={() =>
+                  onStartEdit(message)
+                }
+                aria-label="Edit message"
+                title="Edit message"
+              >
+                <Pencil size={13} />
+              </button>
+            </div>
+          )}
+
         {message.isError && (
           <div className="message-actions visible">
             <button
@@ -1699,8 +1803,8 @@ const MessageItem = memo(
 );
 
 /* ==========================================================================
-   LIVE RESPONSE FLOATING BUTTON
-   ========================================================================== */
+LIVE RESPONSE FLOATING BUTTON
+========================================================================== */
 
 function LiveResponseButton({
   isRequesting,
@@ -1752,8 +1856,8 @@ function LiveResponseButton({
 }
 
 /* ==========================================================================
-   LIVE RESPONSE PANEL
-   ========================================================================== */
+LIVE RESPONSE PANEL
+========================================================================== */
 
 const LiveResponsePanel = memo(
   function LiveResponsePanel({
@@ -1873,8 +1977,8 @@ const LiveResponsePanel = memo(
 );
 
 /* ==========================================================================
-   APP
-   ========================================================================== */
+APP
+========================================================================== */
 
 function App() {
   const [messages, setMessages] =
@@ -1934,8 +2038,18 @@ function App() {
     useState(null);
 
   /* ------------------------------------------------------------------------
-     LIVE RESPONSE STATE
-     ------------------------------------------------------------------------ */
+  USER MESSAGE EDITING STATE
+  ------------------------------------------------------------------------ */
+
+  const [editingMessageId, setEditingMessageId] =
+    useState(null);
+
+  const [editDraft, setEditDraft] =
+    useState("");
+
+  /* ------------------------------------------------------------------------
+  LIVE RESPONSE STATE
+  ------------------------------------------------------------------------ */
 
   const [showLiveResponse, setShowLiveResponse] =
     useState(false);
@@ -1972,8 +2086,8 @@ function App() {
     );
 
   /* ==========================================================================
-     THINKING ANIMATION
-     ========================================================================== */
+  THINKING ANIMATION
+  ========================================================================== */
 
   useEffect(() => {
     if (!isRequesting) {
@@ -2009,8 +2123,8 @@ function App() {
   ]);
 
   /* ==========================================================================
-     THEME
-     ========================================================================== */
+  THEME
+  ========================================================================== */
 
   useEffect(() => {
     localStorage.setItem(
@@ -2025,8 +2139,8 @@ function App() {
   }, [darkMode]);
 
   /* ==========================================================================
-     AUTO-SIZE TEXTAREA
-     ========================================================================== */
+  AUTO-SIZE TEXTAREA
+  ========================================================================== */
 
   useEffect(() => {
     const element =
@@ -2065,8 +2179,8 @@ function App() {
   }, [input]);
 
   /* ==========================================================================
-     CLEANUP
-     ========================================================================== */
+  CLEANUP
+  ========================================================================== */
 
   useEffect(() => {
     return () => {
@@ -2079,8 +2193,8 @@ function App() {
   }, []);
 
   /* ==========================================================================
-     SCROLL METRICS
-     ========================================================================== */
+  SCROLL METRICS
+  ========================================================================== */
 
   const computeScrollMetrics =
     useCallback(() => {
@@ -2120,8 +2234,8 @@ function App() {
     }, []);
 
   /* ==========================================================================
-     KEEP MESSAGES PINNED
-     ========================================================================== */
+  KEEP MESSAGES PINNED
+  ========================================================================== */
 
   useEffect(() => {
     const container =
@@ -2165,8 +2279,8 @@ function App() {
   }, [computeScrollMetrics]);
 
   /* ==========================================================================
-     SCROLL TO BOTTOM
-     ========================================================================== */
+  SCROLL TO BOTTOM
+  ========================================================================== */
 
   const scrollToBottom =
     useCallback(() => {
@@ -2208,8 +2322,8 @@ function App() {
     }, [computeScrollMetrics]);
 
   /* ==========================================================================
-     REQUEST RUNNER
-     ========================================================================== */
+  REQUEST RUNNER
+  ========================================================================== */
 
   const runRequest =
     useCallback(
@@ -2330,16 +2444,7 @@ function App() {
 
                 /*
                  * IMPORTANT:
-                 * This preserves the complete
-                 * backend metadata, including:
-                 *
-                 * metadata.investigation
-                 * metadata.toolsUsed
-                 * metadata.target
-                 * metadata.requestId
-                 *
-                 * The PDF report button uses
-                 * metadata.investigation.
+                 * Preserve complete backend metadata.
                  */
                 metadata:
                   data.metadata || {},
@@ -2413,8 +2518,8 @@ function App() {
     );
 
   /* ==========================================================================
-     SEND MESSAGE
-     ========================================================================== */
+  SEND MESSAGE
+  ========================================================================== */
 
   const sendMessage =
     useCallback(
@@ -2540,8 +2645,8 @@ function App() {
     );
 
   /* ==========================================================================
-     STOP GENERATION
-     ========================================================================== */
+  STOP GENERATION
+  ========================================================================== */
 
   const handleStop =
     useCallback(() => {
@@ -2559,8 +2664,8 @@ function App() {
     }, []);
 
   /* ==========================================================================
-     KEYBOARD
-     ========================================================================== */
+  KEYBOARD
+  ========================================================================== */
 
   const handleKeyDown =
     useCallback(
@@ -2577,8 +2682,8 @@ function App() {
     );
 
   /* ==========================================================================
-     CLEAR CHAT
-     ========================================================================== */
+  CLEAR CHAT
+  ========================================================================== */
 
   const clearChat =
     useCallback(async () => {
@@ -2643,8 +2748,8 @@ function App() {
     }, [conversationId]);
 
   /* ==========================================================================
-     SUGGESTION CLICK
-     ========================================================================== */
+  SUGGESTION CLICK
+  ========================================================================== */
 
   const handleSuggestionClick =
     useCallback(
@@ -2657,8 +2762,8 @@ function App() {
     );
 
   /* ==========================================================================
-     COPY MESSAGE
-     ========================================================================== */
+  COPY MESSAGE
+  ========================================================================== */
 
   const handleCopyMessage =
     useCallback(
@@ -2693,8 +2798,62 @@ function App() {
     );
 
   /* ==========================================================================
-     RETRY
-     ========================================================================== */
+  EDIT USER MESSAGE
+  ========================================================================== */
+
+  const handleStartEdit =
+    useCallback((message) => {
+      setEditingMessageId(
+        message.id
+      );
+
+      setEditDraft(
+        message.fullContent || ""
+      );
+    }, []);
+
+  const handleCancelEdit =
+    useCallback(() => {
+      setEditingMessageId(null);
+      setEditDraft("");
+    }, []);
+
+  const handleSaveEdit =
+    useCallback(
+      (messageId) => {
+        const trimmed =
+          editDraft.trim();
+
+        if (!trimmed) {
+          return;
+        }
+
+        setMessages(
+          (previous) =>
+            previous.map(
+              (message) =>
+                message.id ===
+                messageId
+                  ? {
+                      ...message,
+                      displayContent:
+                        trimmed,
+                      fullContent:
+                        trimmed,
+                    }
+                  : message
+            )
+        );
+
+        setEditingMessageId(null);
+        setEditDraft("");
+      },
+      [editDraft]
+    );
+
+  /* ==========================================================================
+  RETRY
+  ========================================================================== */
 
   const handleRetry =
     useCallback(() => {
@@ -2805,8 +2964,8 @@ function App() {
     ]);
 
   /* ==========================================================================
-     LIVE RESPONSE TOGGLE
-     ========================================================================== */
+  LIVE RESPONSE TOGGLE
+  ========================================================================== */
 
   const toggleLiveResponse =
     useCallback(() => {
@@ -2816,8 +2975,8 @@ function App() {
     }, []);
 
   /* ==========================================================================
-     DOWNLOAD SECURITY REPORT
-     ========================================================================== */
+  DOWNLOAD SECURITY REPORT
+  ========================================================================== */
 
   const downloadSecurityReport =
     useCallback(
@@ -2873,8 +3032,7 @@ function App() {
 
           /*
            * The report endpoint returns
-           * application/pdf on success and
-           * JSON on failure.
+           * application/pdf on success.
            */
           if (!response.ok) {
             let errorMessage =
@@ -3022,8 +3180,8 @@ function App() {
     );
 
   /* ==========================================================================
-     RENDER
-     ========================================================================== */
+  RENDER
+  ========================================================================== */
 
   return (
     <div
@@ -3235,6 +3393,28 @@ function App() {
                   }
                   onDownloadReport={
                     downloadSecurityReport
+                  }
+                  isEditing={
+                    editingMessageId ===
+                    message.id
+                  }
+                  editDraft={
+                    editingMessageId ===
+                    message.id
+                      ? editDraft
+                      : ""
+                  }
+                  onEditDraftChange={
+                    setEditDraft
+                  }
+                  onStartEdit={
+                    handleStartEdit
+                  }
+                  onSaveEdit={
+                    handleSaveEdit
+                  }
+                  onCancelEdit={
+                    handleCancelEdit
                   }
                 />
               )

@@ -13,6 +13,8 @@ const DOMAIN_RE = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}\b/i;
 const INVESTIGATION_INTENT_RE =
   /\b(?:investigate|investigation|check|lookup|look\s+up|analy[sz]e|analyse|reputation|malicious|threat|what\s+do\s+you\s+know|who\s+owns|is\s+this|scan|security\s+posture|breach)\b/i;
 
+const { normalizeHttpUrl, normalizeDomain } = require("../tools/external/provider-utils");
+
 const INVESTIGATION_PROFILES = Object.freeze({
   ip: [
     "virustotal_ip_lookup",
@@ -23,12 +25,22 @@ const INVESTIGATION_PROFILES = Object.freeze({
     "viewdns_lookup",
   ],
   domain: [
+    "virustotal_domain_lookup",
+    "google_web_risk_lookup",
+    "urlhaus_lookup",
+    "phishing_database_lookup",
+    "threatfox_lookup",
     "urlscan_lookup",
     "securitytrails_lookup",
     "mozilla_observatory_scan",
     "viewdns_lookup",
   ],
   url: [
+    "virustotal_domain_lookup",
+    "google_web_risk_lookup",
+    "urlhaus_lookup",
+    "phishing_database_lookup",
+    "threatfox_lookup",
     "urlscan_lookup",
     "mozilla_observatory_scan",
   ],
@@ -49,19 +61,8 @@ function extractIPv4Candidates(text) { return typeof text === "string" ? text.ma
 function extractIPv4(text) { return extractIPv4Candidates(text).find(isValidIPv4) || null; }
 function extractIPv4Candidate(text) { return extractIPv4Candidates(text)[0] || null; }
 
-function normalizeUrlCandidate(value) {
-  if (!value) return null;
-  const cleaned = String(value).replace(/[),.;]+$/, "");
-  try {
-    const parsed = new URL(cleaned);
-    if (!["http:","https:"].includes(parsed.protocol)) return null;
-    return parsed.toString();
-  } catch { return null; }
-}
-function normalizeDomainCandidate(value) {
-  const cleaned = String(value || "").replace(/[),.;]+$/, "").toLowerCase();
-  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(cleaned) ? cleaned : null;
-}
+function normalizeUrlCandidate(value) { return normalizeHttpUrl(value, { allowBareDomain: false }); }
+function normalizeDomainCandidate(value) { return normalizeDomain(value); }
 function extractEmail(text) { const match = String(text || "").match(EMAIL_RE); return match ? match[0] : null; }
 function extractUrl(text) { const match = String(text || "").match(URL_RE); return match ? normalizeUrlCandidate(match[0]) : null; }
 function extractDomain(text) {
@@ -83,7 +84,10 @@ function buildExecutionPlan(targetType, value) {
   const requiredToolArguments = {};
   for (const tool of requiredTools) {
     if (tool === "virustotal_ip_lookup" || tool === "abuseipdb_ip_lookup" || tool === "shodan_ip_lookup" || tool === "ipinfo_ip_lookup" || tool === "censys_ip_lookup") requiredToolArguments[tool] = { ip: value };
+    else if (tool === "virustotal_domain_lookup") requiredToolArguments[tool] = targetType === "url" ? { url: value } : { domain: value };
     else if (tool === "viewdns_lookup") requiredToolArguments[tool] = targetType === "ip" ? { ip: value } : { domain: value };
+    else if (["google_web_risk_lookup", "phishing_database_lookup"].includes(tool)) requiredToolArguments[tool] = targetType === "url" ? { url: value } : { domain: value };
+    else if (["urlhaus_lookup", "threatfox_lookup"].includes(tool)) requiredToolArguments[tool] = targetType === "url" ? { url: value } : { domain: value };
     else if (tool === "urlscan_lookup") requiredToolArguments[tool] = targetType === "url" ? { url: value } : { domain: value };
     else if (tool === "securitytrails_lookup") requiredToolArguments[tool] = { domain: value };
     else if (tool === "mozilla_observatory_scan") requiredToolArguments[tool] = targetType === "url" ? { url: value } : { domain: value };

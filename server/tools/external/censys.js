@@ -48,6 +48,7 @@ function createCensysTool({
       // ------------------------------------------------------------
       // Input validation
       // ------------------------------------------------------------
+
       if (!net.isIP(ip)) {
         return publicResult(
           "censys",
@@ -59,11 +60,12 @@ function createCensysTool({
       // ------------------------------------------------------------
       // Credential validation
       // ------------------------------------------------------------
+
       if (!apiToken) {
         return publicResult(
           "censys",
           "not_configured",
-          "Censys API token is not configured"
+          "CENSYS_API_TOKEN is not configured"
         );
       }
 
@@ -71,10 +73,12 @@ function createCensysTool({
         // ----------------------------------------------------------
         // Censys Platform API
         //
-        // Current endpoint:
         // GET /v3/global/asset/host/{host_id}
         //
-        // Censys recommends organization_id as a query parameter.
+        // Authentication:
+        // Authorization: Bearer <CENSYS_API_TOKEN>
+        //
+        // organization_id is optional.
         // ----------------------------------------------------------
 
         const params = new URLSearchParams();
@@ -84,7 +88,9 @@ function createCensysTool({
         }
 
         const baseUrl =
-          `https://api.platform.censys.io/v3/global/asset/host/${encodeURIComponent(ip)}`;
+          `https://api.platform.censys.io/v3/global/asset/host/${encodeURIComponent(
+            ip
+          )}`;
 
         const url = params.toString()
           ? `${baseUrl}?${params.toString()}`
@@ -96,13 +102,11 @@ function createCensysTool({
           Authorization: `Bearer ${apiToken}`,
         };
 
-        const { response, payload } = await fetchWithRetry(
-          url,
-          {
+        const { response, payload } =
+          await fetchWithRetry(url, {
             timeoutMs,
             headers,
-          }
-        );
+          });
 
         // ----------------------------------------------------------
         // HTTP error handling
@@ -110,16 +114,15 @@ function createCensysTool({
 
         if (!response.ok) {
           /*
-           * IMPORTANT:
-           * Do not expose the Authorization header or token.
-           *
-           * We only extract the safe error information returned
-           * by Censys.
+           * Never expose the Authorization header or token.
            */
 
           let errorDetails = "";
 
-          if (payload && typeof payload === "object") {
+          if (
+            payload &&
+            typeof payload === "object"
+          ) {
             const safePayload = compactObject({
               error: payload.error,
               code: payload.code,
@@ -129,11 +132,17 @@ function createCensysTool({
               type: payload.type,
             });
 
-            if (Object.keys(safePayload).length > 0) {
-              errorDetails = `: ${JSON.stringify(safePayload)}`;
+            if (
+              Object.keys(safePayload).length > 0
+            ) {
+              errorDetails =
+                `: ${JSON.stringify(safePayload)}`;
             }
-          } else if (typeof payload === "string") {
-            errorDetails = `: ${payload.slice(0, 500)}`;
+          } else if (
+            typeof payload === "string"
+          ) {
+            errorDetails =
+              `: ${payload.slice(0, 500)}`;
           }
 
           console.warn(
@@ -141,7 +150,9 @@ function createCensysTool({
             {
               ip,
               status: response.status,
-              message: errorDetails || "No error body returned",
+              message:
+                errorDetails ||
+                "No error body returned",
             }
           );
 
@@ -168,7 +179,7 @@ function createCensysTool({
         }
 
         /*
-         * Censys Platform API:
+         * Expected Platform API shape:
          *
          * {
          *   "result": {
@@ -177,6 +188,9 @@ function createCensysTool({
          *     }
          *   }
          * }
+         *
+         * Keep the fallback to payload.result because some
+         * API responses can expose the resource directly.
          */
 
         const resource =
@@ -189,36 +203,37 @@ function createCensysTool({
         // Services
         // ----------------------------------------------------------
 
-        const services = Array.isArray(resource.services)
-          ? resource.services
-              .slice(0, 20)
-              .map((service) =>
-                compactObject({
-                  port: service.port,
+        const services =
+          Array.isArray(resource.services)
+            ? resource.services
+                .slice(0, 20)
+                .map((service) =>
+                  compactObject({
+                    port: service?.port,
 
-                  serviceName:
-                    service.service_name,
+                    serviceName:
+                      service?.service_name,
 
-                  extendedServiceName:
-                    service.extended_service_name,
+                    extendedServiceName:
+                      service?.extended_service_name,
 
-                  transportProtocol:
-                    service.transport_protocol,
+                    transportProtocol:
+                      service?.transport_protocol,
 
-                  observedAt:
-                    service.observed_at,
+                    observedAt:
+                      service?.observed_at,
 
-                  software:
-                    service.software,
+                    software:
+                      service?.software,
 
-                  banner:
-                    service.banner,
+                    banner:
+                      service?.banner,
 
-                  labels:
-                    service.labels,
-                })
-              )
-          : [];
+                    labels:
+                      service?.labels,
+                  })
+                )
+            : [];
 
         // ----------------------------------------------------------
         // Determine evidence quality
@@ -279,7 +294,8 @@ function createCensysTool({
           error?.category === "tool_timeout"
             ? "timeout"
             : "unavailable",
-          error?.message || "Censys request failed"
+          error?.message ||
+            "Censys request failed"
         );
       }
     },

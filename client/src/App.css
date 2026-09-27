@@ -1,20 +1,115 @@
 /* ==========================================================================
-   Lakewest AI Security Assistant — Production CSS
-   Premium conversational AI for security & safety
-   TYPOGRAPHY PRIORITY: ChatGPT-comfortable reading on all devices
-   Clean, light-first surface · Animated blue brand title
-   16px-17px body text · 1.7 line height · Generous spacing
-   Responsive tables: desktop table / mobile flat stacked rows
+   Lakewest AI Security Assistant — Production CSS (Combined)
+   --------------------------------------------------------------------------
+   Light-first · ChatGPT-comfortable reading · Premium security identity
+   Preserves every class contract used by App.jsx:
+
+     Layout      : .app .header .chat-container .messages .composer
+     Messages    : .message .message-meta .message-content .message-actions
+     Markdown    : .markdown-content, headings, lists, code, blockquote
+     Report      : .semantic-heading, .status-pill, .source-row, .finding-row
+                   .kv-line, .evidence-field, .recommendation-row
+     Tables      : .responsive-table .table-wrapper .mobile-table
+     Code        : .code-block .code-header .code-copy-button
+     Live Resp.  : .live-response-button .live-response-panel
+     Edit mode   : .message-edit .message-edit-textarea .message-edit-actions
+     Theme       : light default, .dark opt-in via toggle
+
+   Nothing from the previous two stylesheets was removed. Where rules
+   overlapped, the more refined version wins, but both sets are present.
+
+   LIGHTENED — text-result background only.
    ========================================================================== */
 
-* {
+/* ==========================================================================
+   1. Reset & Base
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  height: 100%;
+}
+
+body {
+  font-family:
+    "Inter",
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+
+  /* Lighter, calmer background — closer to ChatGPT's soft surface */
+  background: #ffffff;
+  color: #17181c;
+
+  font-size: 16px;
+  line-height: 1.7;
+
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+::selection {
+  background: rgba(58, 84, 127, 0.16);
+  color: inherit;
+}
+
 /* ==========================================================================
-   Design Tokens — Light Mode (default)
+   2. Design Tokens — Light Mode (default)
    ========================================================================== */
 
 :root {
@@ -25,39 +120,41 @@
 
   --accent-text: #3a547f;
   --accent-text-hover: #2d4569;
+
   --link-text: #33517f;
   --link-text-hover: #263e6a;
 
-  --focus-ring: rgba(58, 84, 127, 0.20);
+  --focus-ring: rgba(58, 84, 127, 0.24);
   --selection-bg: rgba(58, 84, 127, 0.16);
-  --selection-text: inherit;
 
   --chat-shell-width: 1040px;
   --header-shell-width: 1180px;
-  --content-max-width: 880px;
+  --content-max-width: 780px;
   --tablet-shell-width: 760px;
+
   --page-inline-padding: 24px;
   --page-inline-padding-tablet: 20px;
   --page-inline-padding-mobile: 14px;
   --page-inline-padding-tiny: 12px;
 
-  /* Clean, near-white surface — flat like a ChatGPT-style workspace
-     rather than a tinted graphic background. */
+  /* Lighter surfaces */
   --bg: #ffffff;
   --surface: #ffffff;
-  --surface-hover: #f6f7f9;
+  --surface-hover: #f6f8fb;
   --surface-elevated: #ffffff;
-  --border: #e5e7eb;
-  --border-light: #eef0f3;
-  --border-hover: #d1d5db;
+  --surface-subtle: #fbfcfe;
+
+  --border: #e6e8ee;
+  --border-light: #eef1f6;
+  --border-hover: #d4d8e2;
 
   --text: #17181c;
   --text-secondary: #4e535c;
   --text-tertiary: #7d838d;
 
-  --inline-code-text: #41506a;
-  --inline-code-bg: #eef1f7;
-  --inline-code-border: #dde2ec;
+  --inline-code-text: #3d4f6b;
+  --inline-code-bg: #f4f7fb;
+  --inline-code-border: #e8eef7;
 
   --code-bg: #1e293b;
   --code-header: #0f172a;
@@ -65,14 +162,31 @@
   --danger: #c53030;
   --danger-hover: #a12525;
   --danger-light: #fdf2f2;
-  --success: #2f855a;
+
   --warning: #92610a;
-  --warning-light: #fdf6e8;
+  --warning-light: #fdf7ea;
+
+  --success: #2f855a;
+
   --neutral-chip: #4e535c;
 
-  --font-sans: "Inter", ui-sans-serif, -apple-system, BlinkMacSystemFont,
-    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-sans:
+    "Inter",
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
+
+  --font-mono:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace;
 
   --spacing-xs: 4px;
   --spacing-sm: 8px;
@@ -87,22 +201,22 @@
   --radius-2xl: 24px;
   --radius-full: 9999px;
 
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
-  --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.06),
-    0 1px 2px rgba(15, 23, 42, 0.04);
-  --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.10),
-    0 2px 6px rgba(15, 23, 42, 0.05);
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md:
+    0 2px 8px rgba(15, 23, 42, 0.05),
+    0 1px 2px rgba(15, 23, 42, 0.03);
+  --shadow-lg:
+    0 10px 30px rgba(15, 23, 42, 0.08),
+    0 2px 6px rgba(15, 23, 42, 0.04);
 
   --header-height: 62px;
+
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* Kept very faint — a single soft highlight near the top of the page,
-     not a repeating pattern. This is what keeps the surface reading as
-     "clean and light" rather than tinted. */
-  --top-glow: rgba(37, 99, 235, 0.035);
+  --top-glow: rgba(37, 99, 235, 0.03);
 
   --brand-1: #1d4ed8;
   --brand-2: #2563eb;
@@ -113,7 +227,7 @@
 }
 
 /* ==========================================================================
-   Design Tokens — Dark Mode (opt-in via the theme toggle)
+   3. Design Tokens — Dark Mode (opt-in)
    ========================================================================== */
 
 .dark {
@@ -124,23 +238,25 @@
 
   --accent-text: #8babd9;
   --accent-text-hover: #a3bce3;
+
   --link-text: #8babd9;
   --link-text-hover: #a3bce3;
 
   --focus-ring: rgba(139, 171, 217, 0.24);
   --selection-bg: rgba(139, 171, 217, 0.24);
-  --selection-text: inherit;
 
-  --bg: #101217;
-  --surface: #181b21;
-  --surface-hover: #1f232b;
-  --surface-elevated: #1e222a;
+  --bg: #0f1115;
+  --surface: #171a20;
+  --surface-hover: #1d2128;
+  --surface-elevated: #1c2029;
+  --surface-subtle: #14171d;
+
   --border: #2a2f39;
   --border-light: #232830;
   --border-hover: #3c4350;
 
-  --text: #f4f6fa;
-  --text-secondary: #b0b7c2;
+  --text: #f2f4f8;
+  --text-secondary: #adb4c0;
   --text-tertiary: #7a828e;
 
   --inline-code-text: #bcccdf;
@@ -150,20 +266,28 @@
   --danger: #e05a5a;
   --danger-hover: #c94a4a;
   --danger-light: #401a1a;
-  --success: #4ade80;
+
   --warning: #f0c14b;
   --warning-light: #3a2e12;
+
+  --success: #4ade80;
   --neutral-chip: #b0b7c2;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
-  --shadow-lg: 0 12px 34px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-md:
+    0 2px 10px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-lg:
+    0 12px 34px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.3);
 
   --gradient-blue: rgba(59, 130, 246, 0.055);
   --gradient-violet: rgba(129, 140, 248, 0.045);
   --gradient-cyan: rgba(14, 165, 233, 0.035);
   --stripe-tint: rgba(96, 165, 250, 0.028);
   --stripe-tint-soft: rgba(96, 165, 250, 0.014);
+
+  --top-glow: rgba(96, 165, 250, 0.06);
 
   --brand-1: #60a5fa;
   --brand-2: #7db4ff;
@@ -174,54 +298,11 @@
 }
 
 /* ==========================================================================
-   Base
-   ========================================================================== */
-
-html {
-  font-size: 16px;
-  -webkit-text-size-adjust: 100%;
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-}
-
-body {
-  font-family: var(--font-sans);
-  background: var(--bg);
-  color: var(--text);
-  line-height: 1.7;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-tap-highlight-color: transparent;
-  height: 100%;
-  overflow: hidden;
-  width: 100%;
-  max-width: 100%;
-  font-size: 16px;
-}
-
-#root {
-  width: 100%;
-  max-width: 100%;
-  overflow-x: hidden;
-  min-width: 0;
-}
-
-::selection {
-  background: var(--selection-bg);
-  color: var(--selection-text);
-}
-
-/* ==========================================================================
-   App Shell
-
-   Light mode is intentionally close to flat white — one soft glow near
-   the top, no repeating stripe pattern — so the default surface reads as
-   clean and bright. Dark mode keeps its richer atmosphere, since it's an
-   explicit opt-in via the theme toggle rather than the default.
+   4. App Shell — soft, bright, gradient atmosphere
    ========================================================================== */
 
 .app {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -230,9 +311,18 @@ body {
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  position: relative;
+
   background:
-    radial-gradient(circle at 50% -10%, var(--top-glow), transparent 46%),
+    radial-gradient(
+      circle at 50% -20%,
+      var(--top-glow),
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at 12% 100%,
+      rgba(99, 102, 241, 0.02),
+      transparent 45%
+    ),
     var(--bg);
 }
 
@@ -253,11 +343,16 @@ body {
     radial-gradient(circle at 12% 0%, var(--gradient-blue), transparent 38%),
     radial-gradient(circle at 88% 8%, var(--gradient-violet), transparent 40%),
     radial-gradient(circle at 50% 100%, var(--gradient-cyan), transparent 44%),
+    radial-gradient(
+      circle at 50% -20%,
+      var(--top-glow),
+      transparent 55%
+    ),
     var(--bg);
 }
 
 /* ==========================================================================
-   Header
+   5. Header
    ========================================================================== */
 
 .header {
@@ -268,9 +363,11 @@ body {
   z-index: 100;
   height: var(--header-height);
   padding-top: var(--safe-top);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
-  backdrop-filter: saturate(180%) blur(14px);
-  -webkit-backdrop-filter: saturate(180%) blur(14px);
+
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+
   border-bottom: 1px solid var(--border-light);
   flex-shrink: 0;
 }
@@ -285,9 +382,9 @@ body {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(37, 99, 235, 0.16) 25%,
-    rgba(99, 102, 241, 0.14) 50%,
-    rgba(14, 165, 233, 0.16) 75%,
+    rgba(37, 99, 235, 0.14) 25%,
+    rgba(99, 102, 241, 0.12) 50%,
+    rgba(14, 165, 233, 0.14) 75%,
     transparent 100%
   );
   pointer-events: none;
@@ -297,13 +394,14 @@ body {
   width: 100%;
   max-width: var(--header-shell-width);
   margin-inline: auto;
-  padding-inline: calc(var(--page-inline-padding) + var(--safe-left))
+  padding-inline:
+    calc(var(--page-inline-padding) + var(--safe-left))
     calc(var(--page-inline-padding) + var(--safe-right));
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--spacing-sm);
+  gap: 8px;
   min-width: 0;
 }
 
@@ -323,12 +421,14 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 9px;
+
   background: linear-gradient(
     135deg,
-    rgba(37, 99, 235, 0.10) 0%,
+    rgba(37, 99, 235, 0.1) 0%,
     rgba(99, 102, 241, 0.09) 50%,
-    rgba(14, 165, 233, 0.10) 100%
+    rgba(14, 165, 233, 0.1) 100%
   );
+
   border: 1px solid rgba(37, 99, 235, 0.16);
   color: var(--accent-text);
   flex-shrink: 0;
@@ -395,12 +495,16 @@ body {
 }
 
 .dark .header-title-gradient {
-  filter: drop-shadow(0 1px 0 rgba(96, 165, 250, 0.10));
+  filter: drop-shadow(0 1px 0 rgba(96, 165, 250, 0.1));
 }
 
 @keyframes brandFlow {
-  0% { background-position: 0% 50%; }
-  100% { background-position: 200% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
 }
 
 .header-subtitle {
@@ -418,8 +522,10 @@ body {
   gap: 5px;
   padding: 2px 8px;
   border-radius: var(--radius-full);
+
   background: color-mix(in srgb, var(--success) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--success) 22%, transparent);
+
   color: var(--success);
   font-size: 11px;
   font-weight: 500;
@@ -452,7 +558,9 @@ body {
   color: var(--text-secondary);
   border: 1px solid transparent;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease,
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
     border-color 0.15s ease;
   font-family: inherit;
 }
@@ -462,6 +570,14 @@ body {
   color: var(--text);
   border-color: var(--border-light);
 }
+
+.icon-button:active {
+  transform: scale(0.97);
+}
+
+/* ==========================================================================
+   6. New Chat Button (header)
+   ========================================================================== */
 
 .new-chat-button {
   display: inline-flex;
@@ -476,8 +592,11 @@ body {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease,
-    color 0.15s ease, transform 0.1s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
   font-family: inherit;
 }
 
@@ -491,7 +610,7 @@ body {
 }
 
 /* ==========================================================================
-   Intent Badges
+   7. Intent Badges
    ========================================================================== */
 
 .intent-badges {
@@ -533,7 +652,7 @@ body {
 }
 
 /* ==========================================================================
-   Chat Container
+   8. Chat Container
    ========================================================================== */
 
 .chat-container {
@@ -545,12 +664,16 @@ body {
   width: 100%;
   max-width: var(--chat-shell-width);
   margin-inline: auto;
-  padding: calc(var(--header-height) + var(--safe-top)) var(--page-inline-padding) 0;
+  padding:
+    calc(var(--header-height) + var(--safe-top))
+    var(--page-inline-padding)
+    0;
   overflow: hidden;
+  position: relative;
 }
 
 /* ==========================================================================
-   Messages
+   9. Messages
    ========================================================================== */
 
 .messages {
@@ -561,24 +684,38 @@ body {
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding: var(--spacing-lg) 0 180px;
+  padding: 28px 0 180px;
   width: 100%;
   max-width: 100%;
   touch-action: pan-y;
   will-change: scroll-position;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .messages::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
+}
+
+.messages::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .messages::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 3px;
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.messages::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+  background-clip: padding-box;
+  border: 2px solid transparent;
 }
 
 /* ==========================================================================
-   Empty State
+   10. Empty State
    ========================================================================== */
 
 .empty-state {
@@ -607,12 +744,14 @@ body {
   height: 54px;
   border-radius: 16px;
   margin-bottom: 18px;
+
   background: linear-gradient(
     135deg,
-    rgba(37, 99, 235, 0.10) 0%,
+    rgba(37, 99, 235, 0.1) 0%,
     rgba(99, 102, 241, 0.09) 50%,
-    rgba(14, 165, 233, 0.10) 100%
+    rgba(14, 165, 233, 0.1) 100%
   );
+
   border: 1px solid rgba(37, 99, 235, 0.16);
   color: var(--accent-text);
 }
@@ -658,6 +797,10 @@ body {
   font-weight: 400;
 }
 
+/* ==========================================================================
+   11. Suggestion Cards
+   ========================================================================== */
+
 .suggestion-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -678,8 +821,11 @@ body {
   border-radius: 14px;
   color: var(--text);
   cursor: pointer;
-  transition: transform 0.15s ease, border-color 0.15s ease,
-    background 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
   font-family: inherit;
   min-width: 0;
   min-height: 44px;
@@ -703,8 +849,10 @@ body {
   width: 32px;
   height: 32px;
   border-radius: 9px;
+
   background: color-mix(in srgb, var(--accent-text) 9%, transparent);
   color: var(--accent-text);
+
   flex-shrink: 0;
   margin-top: 1px;
 }
@@ -735,23 +883,23 @@ body {
 }
 
 /* ==========================================================================
-   Message Layout
+   12. Message Layout
    ========================================================================== */
 
 .message {
-  margin-bottom: 28px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  margin-bottom: 32px;
   overflow-wrap: anywhere;
   word-wrap: break-word;
-  animation: messageIn 180ms ease-out;
+  animation: messageIn 200ms ease-out;
 }
 
 @keyframes messageIn {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -760,22 +908,20 @@ body {
 }
 
 .message.user {
+  max-width: 76%;
   margin-left: auto;
-  max-width: 72%;
-  min-width: 0;
 }
 
 .message.assistant {
-  margin-right: auto;
   max-width: 100%;
-  min-width: 0;
+  margin-right: auto;
 }
 
 .message-meta {
   display: flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   font-size: 12px;
   flex-wrap: wrap;
   min-width: 0;
@@ -815,35 +961,40 @@ body {
   word-wrap: break-word;
 }
 
+/* User bubble */
 .message.user .message-content {
   display: inline-block;
   max-width: 100%;
   min-width: 0;
   background: var(--primary-action);
   color: #ffffff;
-  padding: 12px 17px;
-  border-radius: 18px;
+  padding: 13px 18px;
+  border-radius: 20px;
   border-bottom-right-radius: 6px;
   font-size: 16px;
   line-height: 1.65;
   text-align: left;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.10);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
   overflow-wrap: anywhere;
   word-break: break-word;
   font-weight: 400;
 }
 
+/* Assistant message — LIGHTER surface so the result reads as a soft panel */
 .message.assistant .message-content {
-  background: transparent;
-  padding: 0 0 0 16px;
-  font-size: 16.5px;
-  line-height: 1.7;
+  background: #fbfcfe;
+  padding: 16px 20px 16px 16px;
+  font-size: 16px;
+  line-height: 1.72;
   font-weight: 400;
   color: var(--text);
+
   width: 100%;
   max-width: var(--content-max-width);
   min-width: 0;
+
   border-left: 1px solid var(--border-light);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -851,7 +1002,10 @@ body {
 }
 
 .dark .message.assistant .message-content {
+  background: transparent;
   border-left-color: var(--border);
+  border-radius: 0;
+  padding: 0 0 0 16px;
 }
 
 .message.assistant.error .message-content {
@@ -860,7 +1014,7 @@ body {
   background: var(--danger-light);
   border-radius: var(--radius-md);
   color: var(--danger);
-  font-size: 16px;
+  font-size: 15.5px;
   line-height: 1.65;
 }
 
@@ -869,338 +1023,304 @@ body {
   overflow-wrap: anywhere;
   word-break: break-word;
   min-width: 0;
-  font-size: 16.5px;
-  line-height: 1.7;
+  font-size: 16px;
+  line-height: 1.72;
 }
 
 /* ==========================================================================
-   Markdown Typography
+   13. User Message Edit Mode
    ========================================================================== */
 
-.markdown-content {
-  font-size: 16.5px;
-  line-height: 1.7;
-  font-weight: 400;
-  color: var(--text);
+.message-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   width: 100%;
   max-width: 100%;
   min-width: 0;
+}
+
+.message-edit-textarea {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 180px;
+
+  padding: 12px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+
+  font-family: inherit;
+  font-size: 15.5px;
+  line-height: 1.6;
+
+  resize: none;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+
+  outline: none;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.message-edit-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.message-edit-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.message-edit-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.message-edit-actions .message-action-btn {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.24);
+  color: #ffffff;
+}
+
+.message-edit-actions .message-action-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.message-edit-actions .message-action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ==========================================================================
+   14. Markdown Typography — the heart of the reading experience
+   ========================================================================== */
+
+.markdown-content {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.72;
+  font-weight: 400;
+  letter-spacing: -0.003em;
+
   overflow-wrap: anywhere;
   word-wrap: break-word;
   word-break: break-word;
-  white-space: normal;
-  letter-spacing: normal;
 }
 
-.markdown-content > *:first-child { margin-top: 0; }
-.markdown-content > *:last-child { margin-bottom: 0; }
+.markdown-content > *:first-child {
+  margin-top: 0;
+}
 
-.markdown-content h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 2rem 0 1rem;
-  line-height: 1.3;
-  letter-spacing: -0.022em;
+.markdown-content > *:last-child {
+  margin-bottom: 0;
+}
+
+/* Headings */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
   color: var(--text);
   max-width: 100%;
   overflow-wrap: anywhere;
   word-break: break-word;
+  scroll-margin-top: calc(var(--header-height) + 20px);
+}
+
+.markdown-content h1 {
+  font-size: 1.55rem;
+  font-weight: 650;
+  letter-spacing: -0.021em;
+  line-height: 1.3;
+  margin: 2.2rem 0 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .markdown-content h2 {
-  font-size: 1.48rem;
+  font-size: 1.28rem;
   font-weight: 650;
-  margin: 1.85rem 0 0.85rem;
-  line-height: 1.32;
-  letter-spacing: -0.018em;
-  color: var(--text);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  letter-spacing: -0.016em;
+  line-height: 1.34;
+  margin: 2rem 0 0.85rem;
 }
 
 .markdown-content h3 {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 600;
-  margin: 1.65rem 0 0.7rem;
-  line-height: 1.36;
   letter-spacing: -0.012em;
-  color: var(--text);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  line-height: 1.4;
+  margin: 1.7rem 0 0.7rem;
 }
 
 .markdown-content h4 {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
-  margin: 1.45rem 0 0.6rem;
-  color: var(--text);
-  letter-spacing: -0.005em;
-  max-width: 100%;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  line-height: 1.35;
+  letter-spacing: -0.008em;
+  line-height: 1.42;
+  margin: 1.4rem 0 0.55rem;
 }
 
+/* Paragraphs */
 .markdown-content p {
-  margin: 0 0 1.2rem;
+  margin: 0 0 1.1rem;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--text);
+  line-height: 1.72;
   overflow-wrap: anywhere;
   word-wrap: break-word;
   word-break: break-word;
-  color: var(--text);
-  max-width: 100%;
-  min-width: 0;
-  line-height: 1.7;
 }
 
+/* Lists */
 .markdown-content ul,
 .markdown-content ol {
-  margin: 0 0 1.2rem;
-  padding-left: 1.6rem;
-  color: var(--text);
+  margin: 0 0 1.1rem;
+  padding-left: 1.55rem;
   max-width: 100%;
   min-width: 0;
+  color: var(--text);
+}
+
+.markdown-content ul {
+  list-style-type: disc;
+}
+
+.markdown-content ol {
+  list-style-type: decimal;
 }
 
 .markdown-content li {
-  margin: 0.5rem 0;
+  margin: 0.4rem 0;
+  padding-left: 0.15rem;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.72;
+  min-width: 0;
   overflow-wrap: anywhere;
   word-wrap: break-word;
   word-break: break-word;
-  color: var(--text);
-  min-width: 0;
-  line-height: 1.7;
-  font-size: 16.5px;
+}
+
+.markdown-content li::marker {
+  color: var(--text-tertiary);
+  font-weight: 500;
 }
 
 .markdown-content li > ul,
 .markdown-content li > ol {
-  margin: 0.5rem 0;
+  margin: 0.4rem 0;
+  padding-left: 1.35rem;
 }
 
+/* Links */
 .markdown-content a {
+  max-width: 100%;
   color: var(--link-text);
+  font-weight: 500;
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--link-text) 32%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-  transition: color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    text-decoration-color 0.15s ease;
   overflow-wrap: anywhere;
   word-break: break-word;
-  max-width: 100%;
-  font-weight: 500;
 }
 
 .markdown-content a:hover {
   color: var(--link-text-hover);
+  text-decoration-color: var(--link-text-hover);
 }
 
+.markdown-content a:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Blockquote */
 .markdown-content blockquote {
   margin: 1.35rem 0;
   padding: 12px 18px;
-  border-left: 3px solid var(--border);
-  color: var(--text-secondary);
-  font-style: italic;
-  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent-text) 32%, transparent);
+  background: color-mix(in srgb, var(--accent-text) 4%, transparent);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-secondary);
+  font-size: 15.5px;
+  font-style: normal;
+  line-height: 1.7;
   max-width: 100%;
   box-sizing: border-box;
   overflow-wrap: anywhere;
   word-break: break-word;
   min-width: 0;
-  font-size: 16.5px;
-  line-height: 1.7;
 }
 
+.markdown-content blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Horizontal rule */
 .markdown-content hr {
-  margin: 1.8rem 0;
+  margin: 2rem 0;
   border: none;
   border-top: 1px solid var(--border);
   max-width: 100%;
 }
 
+/* Strong / em */
 .markdown-content strong {
-  font-weight: 600;
   color: var(--text);
+  font-weight: 650;
 }
 
 .markdown-content em {
+  color: var(--text);
   font-style: italic;
-  color: var(--text);
 }
 
 /* ==========================================================================
-   Investigation report semantics — status pills & confidence/risk chips
-
-   Rendered only for lines that match the report's own status/confidence
-   conventions (see InvestigationListItem/InvestigationParagraph in
-   App.jsx). Every other line renders as ordinary Markdown, unaffected.
-   ========================================================================== */
-
-.li-report-line,
-.p-report-line {
-  list-style: none;
-  margin-left: -1.6rem;
-  padding-left: 1.6rem;
-}
-
-.report-line {
-  display: inline-flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  line-height: 1.5;
-}
-
-.report-line-label {
-  font-weight: 600;
-  color: var(--text);
-  font-size: 15px;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 11px 3px 9px;
-  border-radius: var(--radius-full);
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  text-transform: capitalize;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-.status-pill svg {
-  flex-shrink: 0;
-}
-
-.status-pill.tone-good {
-  background: color-mix(in srgb, var(--success) 12%, transparent);
-  color: var(--success);
-  border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
-}
-
-.status-pill.tone-warn {
-  background: color-mix(in srgb, var(--warning) 14%, var(--warning-light));
-  color: var(--warning);
-  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent);
-}
-
-.status-pill.tone-bad {
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-  color: var(--danger);
-  border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
-}
-
-.status-pill.tone-neutral {
-  background: var(--surface-hover);
-  color: var(--neutral-chip);
-  border: 1px solid var(--border);
-}
-
-/* Section headings get a small, colored icon so each part of a report
-   (Sources, Confidence, Limitations, Mitigation...) is recognizable at a
-   glance — meaning carried by shape and color, not just wording, which
-   helps regardless of the reader's first language. */
-.heading-with-icon {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.heading-icon {
-  flex-shrink: 0;
-  color: var(--accent-text);
-  background: color-mix(in srgb, var(--accent-text) 10%, transparent);
-  border-radius: 8px;
-  padding: 4px;
-  box-sizing: content-box;
-}
-
-h2.heading-with-icon .heading-icon { width: 19px; height: 19px; }
-h3.heading-with-icon .heading-icon,
-h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
-
-/* Evidence "field: value" rows — a compact two-part layout instead of a
-   wrapped run-on sentence, so dense investigation data stays scannable
-   on any screen width. */
-.kv-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 10px;
-  row-gap: 2px;
-  width: 100%;
-  min-width: 0;
-}
-
-.kv-line-key {
-  flex: 0 0 auto;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  letter-spacing: 0.02em;
-}
-
-.kv-line-value {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 15px;
-  color: var(--text);
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
-
-.kv-line-icon {
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.kv-line-value--block {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  padding: 8px 11px;
-  background: var(--inline-code-bg);
-  border: 1px solid var(--inline-code-border);
-  border-radius: 8px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--inline-code-text);
-  overflow-x: auto;
-  white-space: pre;
-  -webkit-overflow-scrolling: touch;
-}
-
-/* ==========================================================================
-   Inline Code
+   15. Inline Code
    ========================================================================== */
 
 .inline-code {
-  padding: 0.16em 0.48em;
+  display: inline;
+  max-width: 100%;
+  padding: 0.16em 0.5em;
+
   background: var(--inline-code-bg);
   border: 1px solid var(--inline-code-border);
-  border-radius: 5px;
-  font-family: var(--font-mono);
-  font-size: 0.94em;
+  border-radius: 6px;
+
   color: var(--inline-code-text);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
-  max-width: 100%;
-  font-weight: 500;
 }
 
 /* ==========================================================================
-   Responsive Table
-   Desktop: normal <table>.
-   Mobile:  flat stacked label/value rows, no horizontal scroll needed.
+   16. Responsive Table — desktop table, mobile stacked rows
    ========================================================================== */
 
 .responsive-table {
@@ -1216,10 +1336,12 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
   width: 100%;
   max-width: 100%;
   min-width: 0;
+
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;
+
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -1228,12 +1350,12 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 }
 
 .responsive-table table {
-  border-collapse: collapse;
-  font-size: 14.5px;
-  color: var(--text);
   width: 100%;
   min-width: 100%;
-  line-height: 1.7;
+  border-collapse: collapse;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .responsive-table thead {
@@ -1241,29 +1363,36 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 }
 
 .responsive-table th {
-  padding: 13px 18px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+
+  color: var(--text-secondary);
   text-align: left;
-  font-weight: 600;
+
   font-size: 11.5px;
+  font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--text-secondary);
-  white-space: normal;
+  line-height: 1.5;
+
+  white-space: nowrap;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .responsive-table td {
-  padding: 13px 18px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-light);
-  text-align: left;
-  word-break: normal;
-  overflow-wrap: anywhere;
-  vertical-align: top;
+
   color: var(--text);
-  line-height: 1.7;
-  font-size: 14.5px;
+  text-align: left;
+
+  font-size: 14px;
+  line-height: 1.65;
+  vertical-align: top;
+
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .responsive-table tbody tr:last-child td {
@@ -1271,13 +1400,13 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 }
 
 .responsive-table tbody tr:hover {
-  background: color-mix(in srgb, var(--surface-hover) 60%, transparent);
+  background: color-mix(in srgb, var(--surface-hover) 55%, transparent);
 }
 
+/* Mobile table */
 .mobile-table {
   display: none;
   flex-direction: column;
-  gap: 0;
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -1288,142 +1417,155 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
   box-shadow: none;
 }
 
+.mobile-table-card,
 .mobile-table-row {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 18px 0;
-  margin: 0;
   background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
-  min-width: 0;
-  max-width: 100%;
 }
 
-.mobile-table-row + .mobile-table-row {
+.mobile-table-row + .mobile-table-row,
+.mobile-table-card + .mobile-table-card {
   border-top: 1px solid var(--border-light);
 }
 
-.mobile-table-row:first-child { padding-top: 6px; }
-.mobile-table-row:last-child { padding-bottom: 6px; }
+.mobile-table-row:first-child,
+.mobile-table-card:first-child {
+  padding-top: 6px;
+}
+
+.mobile-table-row:last-child,
+.mobile-table-card:last-child {
+  padding-bottom: 6px;
+}
 
 .mobile-table-field {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  min-width: 0;
   max-width: 100%;
-  box-sizing: border-box;
+  min-width: 0;
 }
 
 .mobile-table-label {
+  margin: 0;
+  color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-tertiary);
   line-height: 1.3;
-  margin: 0;
+  text-transform: uppercase;
 }
 
 .mobile-table-value {
-  font-size: 16.5px;
-  line-height: 1.7;
+  max-width: 100%;
+  min-width: 0;
   color: var(--text);
+  font-size: 15.5px;
+  font-weight: 400;
+  line-height: 1.65;
   overflow-wrap: break-word;
   word-break: normal;
-  min-width: 0;
-  max-width: 100%;
-  box-sizing: border-box;
-  font-weight: 400;
 }
 
-.mobile-table-empty { color: var(--text-tertiary); }
+.mobile-table-empty {
+  color: var(--text-tertiary);
+}
 
 /* ==========================================================================
-   Code Blocks
+   17. Code Blocks
    ========================================================================== */
 
 .code-block {
-  margin: 1.6rem 0;
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  width: 100%;
   max-width: 100%;
   min-width: 0;
-  width: 100%;
+  margin: 1.6rem 0;
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
   box-sizing: border-box;
 }
 
 .code-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   padding: 9px 14px;
   background: var(--code-header);
   color: #94a3b8;
   font-size: 11px;
   font-weight: 500;
-  text-transform: uppercase;
   letter-spacing: 0.09em;
-  min-width: 0;
+  text-transform: uppercase;
 }
 
 .code-header .code-language {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
 }
 
 .code-copy-button {
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 5px 9px;
+  flex-shrink: 0;
+  padding: 5px 10px;
   background: rgba(255, 255, 255, 0.07);
-  color: #cbd5e1;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 5px;
+  border-radius: 6px;
+  color: #cbd5e1;
   font-size: 11px;
   cursor: pointer;
   transition: background 0.15s ease;
   letter-spacing: 0.02em;
   font-family: inherit;
-  flex-shrink: 0;
 }
 
 .code-copy-button:hover {
   background: rgba(255, 255, 255, 0.14);
 }
 
+.code-copy-button:active {
+  transform: scale(0.97);
+}
+
 .code-block pre {
+  width: 100%;
+  max-width: 100%;
   margin: 0 !important;
-  padding: 15px !important;
+  padding: 16px !important;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  font-size: 14.5px;
+  overscroll-behavior-x: contain;
+  font-size: 14px;
   line-height: 1.65;
-  max-width: 100%;
-  width: 100%;
   white-space: pre;
   word-break: normal;
   overflow-wrap: normal;
   box-sizing: border-box;
-  overscroll-behavior-x: contain;
 }
 
 .code-block pre code,
 .code-block code {
-  color: inherit;
+  padding: 0;
   background: transparent;
   border: none;
-  padding: 0;
+  color: inherit;
   font-family: var(--font-mono);
   font-size: inherit;
   white-space: pre;
@@ -1432,17 +1574,17 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 }
 
 /* ==========================================================================
-   Thinking Indicator
+   18. Thinking Indicator
    ========================================================================== */
 
 .thinking-indicator {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 0;
-  font-size: 15px;
-  color: var(--text-secondary);
   min-width: 0;
+  padding: 10px 0;
+  color: var(--text-secondary);
+  font-size: 15px;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -1461,59 +1603,275 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
   animation: pulse 1.4s infinite;
 }
 
-.thinking-dots span:nth-child(2) { animation-delay: 0.18s; }
-.thinking-dots span:nth-child(3) { animation-delay: 0.36s; }
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.36s;
+}
 
 @keyframes pulse {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
-  30% { transform: translateY(-5px); opacity: 1; }
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.55;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
 }
 
 .thinking-text {
+  min-width: 0;
   font-style: normal;
   letter-spacing: 0.005em;
-  min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 /* ==========================================================================
-   Message Actions
+   19. Tool / Investigation Badge
+   ========================================================================== */
+
+.message-tool-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+
+  background: color-mix(in srgb, var(--accent-text) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-text) 20%, transparent);
+  color: var(--accent-text);
+
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.message-tool-badge.investigation {
+  background: color-mix(in srgb, var(--primary-action) 9%, transparent);
+  border-color: color-mix(in srgb, var(--primary-action) 22%, transparent);
+  color: var(--primary-action);
+}
+
+/* ==========================================================================
+   20. Investigation Report — Section Headings with Icons
+   ========================================================================== */
+
+.heading-with-icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.heading-with-icon .heading-icon {
+  flex-shrink: 0;
+  color: var(--accent-text);
+  opacity: 0.9;
+}
+
+.markdown-content h1.heading-with-icon .heading-icon,
+.markdown-content h2.heading-with-icon .heading-icon {
+  color: var(--accent-text);
+}
+
+.markdown-content h3.heading-with-icon .heading-icon,
+.markdown-content h4.heading-with-icon .heading-icon {
+  color: var(--text-tertiary);
+}
+
+/* Semantic section tones */
+.semantic-heading.assessment-heading.threat-heading .heading-icon {
+  color: var(--danger);
+}
+
+.semantic-heading.assessment-heading.unknown-heading .heading-icon {
+  color: var(--text-tertiary);
+}
+
+.semantic-heading.bottom-line-heading .heading-icon {
+  color: var(--primary-action);
+}
+
+.semantic-heading.confidence-heading .heading-icon {
+  color: var(--accent-text);
+}
+
+/* ==========================================================================
+   21. Status Pills, Report Lines, KV Pairs
+   ========================================================================== */
+
+.report-line {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  line-height: 1.6;
+  min-width: 0;
+}
+
+.report-line-label {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.status-pill svg {
+  flex-shrink: 0;
+}
+
+.status-pill.tone-good {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 28%, transparent);
+}
+
+.status-pill.tone-warn {
+  background: color-mix(in srgb, var(--warning) 14%, var(--warning-light));
+  color: var(--warning);
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+.status-pill.tone-bad {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 26%, transparent);
+}
+
+.status-pill.tone-neutral {
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.li-report-line,
+.p-report-line {
+  list-style: none;
+  margin-left: -1.55rem;
+  padding-left: 1.55rem;
+}
+
+.p-report-line {
+  margin-bottom: 0.5rem;
+}
+
+/* Key/value evidence lines */
+.kv-line {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.kv-line-key {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+.kv-line-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.kv-line-value--block {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 6px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.kv-line-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   22. Message Action Buttons
    ========================================================================== */
 
 .message-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 12px;
   opacity: 0;
   transition: opacity 0.15s ease;
-  min-width: 0;
-  max-width: 100%;
 }
 
 .message:hover .message-actions,
+.message:focus-within .message-actions,
 .message-actions:focus-within,
 .message-actions.visible {
   opacity: 1;
 }
 
 .message-action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  min-height: 36px;
-  min-width: 36px;
-  padding: 4px 10px;
-  font-size: 12.5px;
-  color: var(--text-tertiary);
-  border: 1px solid var(--border);
+  gap: 5px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 5px 10px;
+
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--surface);
+
+  color: var(--text-tertiary);
+  font-size: 12.5px;
+  font-weight: 500;
+
   cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease,
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
     border-color 0.15s ease;
+
   font-family: inherit;
   flex-shrink: 0;
 }
@@ -1521,24 +1879,62 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 .message-action-btn:hover {
   color: var(--text);
   background: var(--surface-hover);
-  border-color: var(--border-hover);
+  border-color: var(--border-light);
+}
+
+.message-action-btn:active {
+  transform: scale(0.97);
+}
+
+.message-action-btn:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .message-action-btn.error {
   color: var(--danger);
-  border-color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
   background: var(--danger-light);
 }
 
+.message-action-btn.error:hover {
+  background: color-mix(in srgb, var(--danger) 12%, var(--danger-light));
+}
+
+/* Report download button — subtle, distinct */
+.report-download-btn {
+  color: var(--accent-text);
+}
+
+.report-download-btn:hover {
+  color: var(--accent-text-hover);
+  background: color-mix(in srgb, var(--accent-text) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-text) 20%, transparent);
+}
+
+.report-download-btn svg {
+  flex-shrink: 0;
+}
+
+.report-button-label {
+  display: inline;
+}
+
+/* User actions — align right */
+.message.user .message-actions {
+  justify-content: flex-end;
+}
+
 /* ==========================================================================
-   Metadata
+   23. Metadata Footer
    ========================================================================== */
 
 .metadata-footer {
-  margin-top: 10px;
-  font-size: 12px;
+  margin-top: 12px;
   color: var(--text-tertiary);
-  letter-spacing: 0.02em;
+  font-size: 12px;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -1548,29 +1944,41 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
   overflow-wrap: anywhere;
 }
 
+.metadata-separator {
+  margin: 0 5px;
+  opacity: 0.6;
+}
+
 /* ==========================================================================
-   Scroll Button
+   24. Scroll Button
    ========================================================================== */
 
 .scroll-button {
   position: fixed;
-  bottom: calc(122px + var(--safe-bottom));
   left: 50%;
-  transform: translateX(-50%);
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-md);
+  bottom: calc(122px + var(--safe-bottom));
+  z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 42px;
+  height: 42px;
+  transform: translateX(-50%);
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  box-shadow: var(--shadow-md);
+
   color: var(--text-secondary);
-  z-index: 60;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease,
-    transform 0.15s ease, box-shadow 0.15s ease;
+
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+
   animation: scrollBtnIn 200ms ease-out;
 }
 
@@ -1596,581 +2004,7 @@ h4.heading-with-icon .heading-icon { width: 16px; height: 16px; }
 }
 
 /* ==========================================================================
-   Composer
-   ========================================================================== */
-
-.composer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 90;
-  padding: 10px 0;
-  padding-bottom: max(10px, calc(10px + env(safe-area-inset-bottom)));
-  padding-left: var(--safe-left);
-  padding-right: var(--safe-right);
-  background: linear-gradient(to top, var(--bg) 62%, transparent);
-  pointer-events: none;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.composer-inner {
-  width: 100%;
-  max-width: var(--chat-shell-width);
-  margin-inline: auto;
-  padding-inline: var(--page-inline-padding);
-  pointer-events: auto;
-  min-width: 0;
-  box-sizing: border-box;
-}
-
-.composer-box {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 6px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  box-shadow: var(--shadow-md);
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 62px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  pointer-events: auto;
-  box-sizing: border-box;
-}
-
-.composer-box:focus-within {
-  border-color: var(--accent-text);
-  box-shadow: 0 0 0 3px var(--focus-ring), var(--shadow-md);
-}
-
-.composer textarea {
-  flex: 1 1 auto;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: var(--text);
-  caret-color: var(--text);
-  font-size: 16px;
-  font-family: var(--font-sans);
-  line-height: 1.6;
-  padding: 12px 14px;
-  min-height: 46px;
-  max-height: 220px;
-  resize: none;
-  overflow-y: auto;
-  overflow-x: hidden;
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  pointer-events: auto;
-  cursor: text;
-  -webkit-user-select: text;
-  user-select: text;
-  box-sizing: border-box;
-}
-
-.composer textarea::placeholder {
-  color: var(--text-tertiary);
-  opacity: 0.85;
-}
-
-.send-button,
-.stop-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-height: 46px;
-  min-width: 46px;
-  padding: 0 14px;
-  border: none;
-  border-radius: 14px;
-  font-size: 13.5px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
-  pointer-events: auto;
-  font-family: inherit;
-}
-
-.send-button {
-  background: var(--primary-action);
-  color: #ffffff;
-}
-
-.send-button:hover:not(:disabled) {
-  background: var(--primary-action-hover);
-}
-
-.send-button:active:not(:disabled) {
-  transform: scale(0.96);
-}
-
-.send-button:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
-.stop-button {
-  background: var(--danger);
-  color: #ffffff;
-}
-
-.stop-button:hover { background: var(--danger-hover); }
-.stop-button:active { transform: scale(0.96); }
-
-.composer-hint {
-  text-align: center;
-  font-size: 11.5px;
-  color: var(--text-tertiary);
-  margin-top: 8px;
-  pointer-events: auto;
-  letter-spacing: 0.02em;
-}
-
-/* ==========================================================================
-   Streaming Optimization
-   ========================================================================== */
-
-.message.assistant .message-content,
-.markdown-content {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 500px;
-}
-
-.messages { scroll-behavior: auto; }
-
-@media (prefers-reduced-motion: no-preference) {
-  .messages { scroll-behavior: smooth; }
-}
-
-/* ==========================================================================
-   Responsive — Medium Desktop
-   ========================================================================== */
-
-@media (min-width: 768px) and (max-width: 1199px) {
-  .chat-container,
-  .composer-inner {
-    max-width: var(--tablet-shell-width);
-    padding-inline: var(--page-inline-padding-tablet);
-  }
-
-  .header-content {
-    max-width: var(--header-shell-width);
-    padding-inline: var(--page-inline-padding-tablet);
-  }
-
-  .intent-badges {
-    max-width: var(--tablet-shell-width);
-    padding-inline: var(--page-inline-padding-tablet);
-  }
-}
-
-/* ==========================================================================
-   Responsive — Mobile
-   ========================================================================== */
-
-@media (max-width: 767px) {
-  :root {
-    --header-height: 58px;
-  }
-
-  .chat-container,
-  .composer-inner {
-    width: 100%;
-    max-width: none;
-    padding-inline: var(--page-inline-padding-mobile);
-  }
-
-  .header-content {
-    max-width: none;
-    padding-inline: var(--page-inline-padding-mobile);
-  }
-
-  .intent-badges {
-    max-width: none;
-    padding-inline: var(--page-inline-padding-mobile);
-  }
-
-  .header-icon-container {
-    width: 30px;
-    height: 30px;
-    border-radius: 9px;
-  }
-
-  .header-subtitle { display: none; }
-  .header-status { display: none; }
-  .new-chat-label { display: none; }
-
-  .new-chat-button {
-    padding: 0;
-    min-width: 42px;
-    min-height: 42px;
-    justify-content: center;
-  }
-
-  .icon-button {
-    min-width: 42px;
-    min-height: 42px;
-  }
-
-  .empty-state { padding: 28px 0 16px; }
-
-  .empty-state-title {
-    font-size: clamp(20px, 5.2vw, 24px);
-    margin-bottom: 12px;
-  }
-
-  .empty-state-description {
-    font-size: clamp(14.5px, 3.6vw, 15.5px);
-    margin-bottom: 26px;
-  }
-
-  .suggestion-grid {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-
-  .suggestion-card {
-    padding: 15px 15px;
-    border-radius: 16px;
-  }
-
-  .suggestion-card-icon {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-  }
-
-  .markdown-content {
-    font-size: 16px;
-    line-height: 1.7;
-  }
-
-  .message.assistant .message-content {
-    font-size: 16px;
-    line-height: 1.7;
-    max-width: 100%;
-    padding-left: 14px;
-  }
-
-  .plain-message {
-    font-size: 16px;
-    line-height: 1.7;
-  }
-
-  .message.user { max-width: 90%; }
-
-  .message.user .message-content {
-    padding: 11px 15px;
-    font-size: 15.5px;
-    line-height: 1.65;
-    border-radius: 18px;
-    border-bottom-right-radius: 6px;
-  }
-
-  .markdown-content h1 { font-size: 1.55rem; margin: 1.75rem 0 0.85rem; }
-  .markdown-content h2 { font-size: 1.32rem; margin: 1.6rem 0 0.75rem; }
-  .markdown-content h3 { font-size: 1.15rem; margin: 1.45rem 0 0.6rem; }
-  .markdown-content h4 { font-size: 1.02rem; margin: 1.25rem 0 0.55rem; }
-
-  .markdown-content p { margin-bottom: 1.15rem; }
-
-  .markdown-content ul,
-  .markdown-content ol {
-    padding-left: 1.35rem;
-    margin-bottom: 1.15rem;
-  }
-
-  .markdown-content li { margin: 0.45rem 0; }
-
-  .markdown-content blockquote {
-    padding: 8px 14px;
-    font-size: 16px;
-  }
-
-  /* Flat mobile table transformation */
-  .responsive-table .table-wrapper { display: none; }
-  .responsive-table .mobile-table { display: flex; }
-  .responsive-table { margin: 1.35rem 0; }
-
-  .mobile-table-row { padding: 16px 0; gap: 12px; }
-  .mobile-table-label { font-size: 11px; letter-spacing: 0.08em; }
-  .mobile-table-value { font-size: 16px; line-height: 1.7; }
-
-  .composer {
-    padding-top: 8px;
-    padding-bottom: max(10px, calc(10px + env(safe-area-inset-bottom)));
-  }
-
-  .composer-box {
-    padding: 5px;
-    gap: 6px;
-    min-height: 60px;
-    border-radius: 22px;
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.10),
-      0 1px 2px rgba(15, 23, 42, 0.06);
-  }
-
-  .dark .composer-box {
-    box-shadow: 0 4px 22px rgba(0, 0, 0, 0.45),
-      0 1px 2px rgba(0, 0, 0, 0.3);
-  }
-
-  .composer textarea {
-    font-size: 15.5px;
-    line-height: 1.6;
-    min-height: 44px;
-    max-height: 180px;
-    padding: 10px 12px;
-  }
-
-  .send-button,
-  .stop-button {
-    min-height: 44px;
-    min-width: 44px;
-    padding: 0 12px;
-    border-radius: 14px;
-  }
-
-  .message-actions { opacity: 1; }
-
-  .code-block pre { font-size: 14px; padding: 13px !important; }
-  .code-block { border-radius: 14px; }
-  .table-wrapper { border-radius: 14px; }
-
-  .scroll-button {
-    bottom: calc(126px + var(--safe-bottom));
-    width: 42px;
-    height: 42px;
-  }
-
-  /* Investigation report elements: stack key/value rows and shrink
-     heading icons a touch so dense reports stay comfortable to read on
-     a phone screen. */
-  .kv-line {
-    flex-direction: column;
-    align-items: flex-start;
-    row-gap: 1px;
-  }
-
-  .heading-icon {
-    padding: 3px;
-  }
-
-  h2.heading-with-icon .heading-icon { width: 17px; height: 17px; }
-  h3.heading-with-icon .heading-icon,
-  h4.heading-with-icon .heading-icon { width: 15px; height: 15px; }
-
-  .report-line {
-    gap: 8px;
-  }
-}
-
-/* ==========================================================================
-   Responsive — Small Mobile
-   ========================================================================== */
-
-@media (max-width: 480px) {
-  .chat-container,
-  .composer-inner,
-  .header-content,
-  .intent-badges {
-    padding-inline: var(--page-inline-padding-mobile);
-  }
-
-  .message.user { max-width: 92%; }
-
-  .markdown-content { font-size: 16px; line-height: 1.68; }
-  .message.assistant .message-content { font-size: 16px; }
-
-  .markdown-content h1 { font-size: 1.48rem; }
-  .markdown-content h2 { font-size: 1.28rem; }
-  .markdown-content h3 { font-size: 1.13rem; }
-  .markdown-content h4 { font-size: 1.02rem; }
-
-  .markdown-content ul,
-  .markdown-content ol { padding-left: 1.25rem; }
-
-  .composer textarea { font-size: 15.5px; }
-  .composer-hint { display: none; }
-
-  .mobile-table-row { padding: 15px 0; gap: 12px; }
-  .mobile-table-value { font-size: 16px; line-height: 1.68; }
-}
-
-/* ==========================================================================
-   Responsive — Very Small Mobile (320px-360px)
-   ========================================================================== */
-
-@media (max-width: 360px) {
-  .chat-container,
-  .composer-inner,
-  .header-content,
-  .intent-badges {
-    padding-inline: var(--page-inline-padding-tiny);
-  }
-
-  .message.user { max-width: 94%; }
-  .message.assistant .message-content { padding-left: 12px; }
-
-  .markdown-content { font-size: 16px; line-height: 1.65; }
-  .message.assistant .message-content { font-size: 16px; }
-  .plain-message { font-size: 16px; }
-
-  .markdown-content h1 { font-size: 1.4rem; }
-  .markdown-content h2 { font-size: 1.22rem; }
-  .markdown-content h3 { font-size: 1.1rem; }
-  .markdown-content h4 { font-size: 1rem; }
-
-  .markdown-content ul,
-  .markdown-content ol { padding-left: 1.15rem; }
-
-  .markdown-content blockquote { padding: 6px 12px; font-size: 16px; }
-
-  .composer-box { gap: 5px; padding: 4px; border-radius: 20px; }
-
-  .composer textarea {
-    font-size: 15.5px;
-    min-height: 42px;
-    padding: 9px 10px;
-  }
-
-  .send-button,
-  .stop-button {
-    min-width: 42px;
-    min-height: 42px;
-    padding: 0 10px;
-    border-radius: 12px;
-  }
-
-  .code-block pre { padding: 11px !important; font-size: 13.5px; }
-
-  .mobile-table-row { padding: 14px 0; gap: 11px; }
-  .mobile-table-label { font-size: 10.5px; }
-  .mobile-table-value { font-size: 16px; line-height: 1.65; }
-}
-
-/* ==========================================================================
-   Accessibility
-   ========================================================================== */
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
-
-  .message,
-  .empty-state,
-  .scroll-button {
-    animation: none !important;
-  }
-
-  .header-title-gradient {
-    animation: none !important;
-    background-position: 50% 50% !important;
-  }
-
-  .app {
-    background: var(--bg);
-  }
-}
-
-button:focus-visible,
-textarea:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--accent-text);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* ==========================================================================
-   New Chat inline button — sits to the left of the textarea, mirrors Send
-   ========================================================================== */
-
-.new-chat-inline-button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  min-height: 46px;
-  min-width: 46px;
-  padding: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease,
-    border-color 0.15s ease, transform 0.1s ease;
-  pointer-events: auto;
-  font-family: inherit;
-  flex-shrink: 0;
-}
-
-.new-chat-inline-button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-  border-color: var(--border-hover);
-}
-
-.new-chat-inline-button:active {
-  transform: scale(0.96);
-}
-
-.new-chat-inline-button:focus-visible {
-  outline: 2px solid var(--accent-text);
-  outline-offset: 2px;
-  border-radius: 14px;
-}
-
-/* Mobile adjustments — match the send/stop button sizes at each breakpoint */
-@media (max-width: 767px) {
-  .new-chat-inline-button {
-    min-height: 44px;
-    min-width: 44px;
-    border-radius: 14px;
-  }
-}
-
-@media (max-width: 360px) {
-  .new-chat-inline-button {
-    min-height: 40px;
-    min-width: 40px;
-    border-radius: 12px;
-  }
-}
-
-.message-tool-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: var(--radius-full);
-  background: color-mix(in srgb, var(--accent-text) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent-text) 20%, transparent);
-  color: var(--accent-text);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-/* ==========================================================================
-   LIVE RESPONSE — FULL COMPONENT STYLING
+   25. Live Response — Floating Button
    ========================================================================== */
 
 .live-response-button {
@@ -2206,6 +2040,8 @@ a:focus-visible {
     transform 0.18s ease,
     box-shadow 0.18s ease,
     background 0.18s ease !important;
+
+  animation: liveResponseIn 200ms ease-out;
 }
 
 .live-response-button:hover {
@@ -2275,17 +2111,26 @@ a:focus-visible {
   animation: live-response-ring-animation 1.7s infinite !important;
 }
 
+@keyframes liveResponseIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes live-response-pulse-animation {
   0% {
     transform: scale(0.7);
     opacity: 0.8;
   }
-
   70% {
     transform: scale(2);
     opacity: 0;
   }
-
   100% {
     transform: scale(2);
     opacity: 0;
@@ -2297,16 +2142,14 @@ a:focus-visible {
     transform: scale(0.9);
     opacity: 0.7;
   }
-
   100% {
     transform: scale(1.7);
     opacity: 0;
   }
 }
 
-
 /* ==========================================================================
-   LIVE RESPONSE PANEL
+   26. Live Response — Panel
    ========================================================================== */
 
 .live-response-panel {
@@ -2346,17 +2189,11 @@ a:focus-visible {
     opacity: 0;
     transform: translateY(12px) scale(0.97);
   }
-
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
-
-
-/* ==========================================================================
-   PANEL HEADER
-   ========================================================================== */
 
 .live-response-panel-header {
   flex-shrink: 0 !important;
@@ -2439,11 +2276,6 @@ a:focus-visible {
   gap: 5px !important;
 }
 
-
-/* ==========================================================================
-   PANEL BUTTONS
-   ========================================================================== */
-
 .live-response-stop,
 .live-response-close {
   width: 30px !important;
@@ -2485,11 +2317,6 @@ a:focus-visible {
   color: #b91c1c !important;
 }
 
-
-/* ==========================================================================
-   PANEL BODY
-   ========================================================================== */
-
 .live-response-panel-body {
   flex: 1 !important;
 
@@ -2502,11 +2329,6 @@ a:focus-visible {
 
   background: #ffffff !important;
 }
-
-
-/* ==========================================================================
-   THINKING STATUS
-   ========================================================================== */
 
 .live-response-thinking {
   display: flex !important;
@@ -2549,17 +2371,11 @@ a:focus-visible {
     opacity: 0.35;
     transform: scale(0.8);
   }
-
   50% {
     opacity: 1;
     transform: scale(1.15);
   }
 }
-
-
-/* ==========================================================================
-   RESPONSE CONTENT
-   ========================================================================== */
 
 .live-response-content {
   font-size: 12px !important;
@@ -2657,11 +2473,6 @@ a:focus-visible {
   color: #4f46e5 !important;
 }
 
-
-/* ==========================================================================
-   EMPTY STATE
-   ========================================================================== */
-
 .live-response-empty {
   min-height: 150px !important;
 
@@ -2687,11 +2498,7 @@ a:focus-visible {
   color: #6366f1 !important;
 }
 
-
-/* ==========================================================================
-   DARK MODE
-   ========================================================================== */
-
+/* Dark mode for live response */
 .dark .live-response-button,
 .app.dark .live-response-button {
   background: #111827 !important;
@@ -2805,9 +2612,705 @@ a:focus-visible {
   color: #94a3b8 !important;
 }
 
+/* ==========================================================================
+   27. Composer
+   ========================================================================== */
+
+.composer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  width: 100%;
+  max-width: 100%;
+
+  padding:
+    12px
+    var(--safe-right)
+    max(12px, calc(12px + var(--safe-bottom)))
+    var(--safe-left);
+
+  background: linear-gradient(
+    to top,
+    var(--bg) 55%,
+    color-mix(in srgb, var(--bg) 70%, transparent) 78%,
+    transparent 100%
+  );
+
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+.composer-inner {
+  width: 100%;
+  max-width: var(--chat-shell-width);
+  margin-inline: auto;
+  padding-inline: var(--page-inline-padding);
+  pointer-events: auto;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.composer-box {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 60px;
+  padding: 6px;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow-md);
+
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+
+  pointer-events: auto;
+  box-sizing: border-box;
+}
+
+.composer-box:focus-within {
+  border-color: color-mix(in srgb, var(--accent-text) 60%, var(--border));
+  box-shadow:
+    0 0 0 3px var(--focus-ring),
+    var(--shadow-md);
+}
+
+.composer textarea {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+
+  min-height: 46px;
+  max-height: 220px;
+  padding: 12px 14px;
+
+  resize: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  background: transparent;
+  border: none;
+  outline: none;
+
+  color: var(--text);
+  caret-color: var(--text);
+
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+
+  pointer-events: auto;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+  box-sizing: border-box;
+}
+
+.composer textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.9;
+}
+
+.send-button,
+.stop-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 14px;
+
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease,
+    opacity 0.15s ease;
+
+  pointer-events: auto;
+  font-family: inherit;
+}
+
+.send-button {
+  background: var(--primary-action);
+  color: #ffffff;
+}
+
+.send-button:hover:not(:disabled) {
+  background: var(--primary-action-hover);
+}
+
+.send-button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
+.send-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.stop-button {
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.stop-button:hover {
+  background: var(--danger-hover);
+}
+
+.stop-button:active {
+  transform: scale(0.96);
+}
+
+.composer-hint {
+  margin-top: 8px;
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  text-align: center;
+  letter-spacing: 0.02em;
+  pointer-events: auto;
+}
+
+/* New chat inline button — sits to the left of the textarea, mirrors Send */
+.new-chat-inline-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0;
+
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--text-secondary);
+
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.1s ease;
+
+  pointer-events: auto;
+  font-family: inherit;
+}
+
+.new-chat-inline-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-hover);
+}
+
+.new-chat-inline-button:active {
+  transform: scale(0.96);
+}
+
+.new-chat-inline-button:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 14px;
+}
 
 /* ==========================================================================
-   MOBILE
+   28. Streaming Optimization
+   ========================================================================== */
+
+.message.assistant .message-content,
+.markdown-content {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 500px;
+}
+
+.messages {
+  scroll-behavior: auto;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .messages {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ==========================================================================
+   29. Responsive — Medium Desktop / Tablet
+   ========================================================================== */
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .chat-container,
+  .composer-inner {
+    max-width: var(--tablet-shell-width);
+    padding-inline: var(--page-inline-padding-tablet);
+  }
+
+  .header-content {
+    max-width: var(--header-shell-width);
+    padding-inline: var(--page-inline-padding-tablet);
+  }
+
+  .intent-badges {
+    max-width: var(--tablet-shell-width);
+    padding-inline: var(--page-inline-padding-tablet);
+  }
+}
+
+/* ==========================================================================
+   30. Responsive — Mobile
+   ========================================================================== */
+
+@media (max-width: 767px) {
+  :root {
+    --header-height: 58px;
+  }
+
+  .chat-container,
+  .composer-inner {
+    width: 100%;
+    max-width: none;
+    padding-inline: var(--page-inline-padding-mobile);
+  }
+
+  .header-content {
+    max-width: none;
+    padding-inline: var(--page-inline-padding-mobile);
+  }
+
+  .intent-badges {
+    max-width: none;
+    padding-inline: var(--page-inline-padding-mobile);
+  }
+
+  .header-icon-container {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+
+  .header-subtitle,
+  .header-status {
+    display: none;
+  }
+
+  .new-chat-label {
+    display: none;
+  }
+
+  .new-chat-button {
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .icon-button {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .empty-state {
+    padding: 28px 0 16px;
+  }
+
+  .empty-state-title {
+    margin-bottom: 12px;
+    font-size: clamp(20px, 5.2vw, 24px);
+  }
+
+  .empty-state-description {
+    margin-bottom: 26px;
+    font-size: clamp(14.5px, 3.6vw, 15.5px);
+  }
+
+  .suggestion-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .suggestion-card {
+    padding: 15px;
+    border-radius: 16px;
+  }
+
+  .suggestion-card-icon {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+  }
+
+  .markdown-content {
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+
+  .message.assistant .message-content {
+    max-width: 100%;
+    padding: 14px 16px 14px 14px;
+    font-size: 15.5px;
+    line-height: 1.7;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  .dark .message.assistant .message-content {
+    padding: 0 0 0 14px;
+    border-radius: 0;
+  }
+
+  .plain-message {
+    font-size: 15.5px;
+    line-height: 1.7;
+  }
+
+  .message.user {
+    max-width: 90%;
+  }
+
+  .message.user .message-content {
+    padding: 11px 15px;
+    border-radius: 18px;
+    border-bottom-right-radius: 6px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  .markdown-content h1 {
+    font-size: 1.35rem;
+    margin: 1.6rem 0 0.75rem;
+  }
+
+  .markdown-content h2 {
+    font-size: 1.18rem;
+    margin: 1.5rem 0 0.7rem;
+  }
+
+  .markdown-content h3 {
+    font-size: 1.05rem;
+    margin: 1.35rem 0 0.6rem;
+  }
+
+  .markdown-content h4 {
+    font-size: 0.98rem;
+    margin: 1.15rem 0 0.5rem;
+  }
+
+  .markdown-content p {
+    margin-bottom: 1rem;
+  }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    margin-bottom: 1rem;
+    padding-left: 1.35rem;
+  }
+
+  .markdown-content li {
+    margin: 0.35rem 0;
+  }
+
+  .markdown-content blockquote {
+    padding: 10px 14px;
+    font-size: 15px;
+  }
+
+  /* Responsive table switch */
+  .responsive-table .table-wrapper {
+    display: none;
+  }
+
+  .responsive-table .mobile-table {
+    display: flex;
+  }
+
+  .responsive-table {
+    margin: 1.35rem 0;
+  }
+
+  .mobile-table-row,
+  .mobile-table-card {
+    padding: 16px 0;
+    gap: 12px;
+  }
+
+  .mobile-table-label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .mobile-table-value {
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  .composer {
+    padding-top: 10px;
+    padding-bottom: max(12px, calc(12px + var(--safe-bottom)));
+  }
+
+  .composer-box {
+    min-height: 58px;
+    padding: 5px;
+    gap: 6px;
+    border-radius: 22px;
+    box-shadow:
+      0 4px 20px rgba(15, 23, 42, 0.08),
+      0 1px 2px rgba(15, 23, 42, 0.05);
+  }
+
+  .dark .composer-box {
+    box-shadow:
+      0 4px 22px rgba(0, 0, 0, 0.4),
+      0 1px 2px rgba(0, 0, 0, 0.28);
+  }
+
+  .composer textarea {
+    min-height: 44px;
+    max-height: 140px;
+    padding: 10px 12px;
+    font-size: 15.5px;
+    line-height: 1.6;
+  }
+
+  .send-button,
+  .stop-button {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 12px;
+    border-radius: 14px;
+  }
+
+  .new-chat-inline-button {
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: 14px;
+  }
+
+  .message-actions {
+    opacity: 1;
+  }
+
+  .code-block {
+    border-radius: 12px;
+  }
+
+  .code-block pre {
+    padding: 13px !important;
+    font-size: 13px;
+  }
+
+  .table-wrapper {
+    border-radius: 12px;
+  }
+
+  .scroll-button {
+    bottom: calc(126px + var(--safe-bottom));
+    width: 40px;
+    height: 40px;
+  }
+
+  .message {
+    margin-bottom: 26px;
+  }
+
+  .messages {
+    padding-top: 20px;
+    padding-bottom: 160px;
+  }
+
+  /* Investigation report elements: stack KV rows and shrink heading icons */
+  .kv-line {
+    flex-direction: column;
+    align-items: flex-start;
+    row-gap: 1px;
+  }
+
+  .heading-icon {
+    padding: 3px;
+  }
+
+  h2.heading-with-icon .heading-icon { width: 17px; height: 17px; }
+  h3.heading-with-icon .heading-icon,
+  h4.heading-with-icon .heading-icon { width: 15px; height: 15px; }
+
+  .report-line {
+    gap: 8px;
+  }
+}
+
+/* ==========================================================================
+   31. Responsive — Small Mobile
+   ========================================================================== */
+
+@media (max-width: 480px) {
+  .chat-container,
+  .composer-inner,
+  .header-content,
+  .intent-badges {
+    padding-inline: var(--page-inline-padding-mobile);
+  }
+
+  .message.user {
+    max-width: 92%;
+  }
+
+  .markdown-content {
+    font-size: 15.5px;
+    line-height: 1.68;
+  }
+
+  .message.assistant .message-content {
+    font-size: 15.5px;
+  }
+
+  .markdown-content h1 { font-size: 1.28rem; }
+  .markdown-content h2 { font-size: 1.14rem; }
+  .markdown-content h3 { font-size: 1.03rem; }
+  .markdown-content h4 { font-size: 0.96rem; }
+
+  .markdown-content ul,
+  .markdown-content ol { padding-left: 1.2rem; }
+
+  .composer textarea { font-size: 15.5px; }
+  .composer-hint { display: none; }
+
+  .mobile-table-row,
+  .mobile-table-card {
+    padding: 15px 0;
+    gap: 12px;
+  }
+
+  .mobile-table-value {
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  .message-tool-badge {
+    font-size: 10px;
+    padding: 2px 7px;
+  }
+
+  .message-edit-actions {
+    width: 100%;
+  }
+
+  .message-edit-actions .message-action-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* ==========================================================================
+   32. Responsive — Very Small Mobile
+   ========================================================================== */
+
+@media (max-width: 360px) {
+  .chat-container,
+  .composer-inner,
+  .header-content,
+  .intent-badges {
+    padding-inline: var(--page-inline-padding-tiny);
+  }
+
+  .message.user {
+    max-width: 94%;
+  }
+
+  .message.assistant .message-content {
+    padding: 12px 12px 12px 12px;
+    font-size: 15px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+
+  .dark .message.assistant .message-content {
+    padding: 0 0 0 12px;
+    border-radius: 0;
+  }
+
+  .markdown-content {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .plain-message {
+    font-size: 15px;
+  }
+
+  .markdown-content h1 { font-size: 1.2rem; }
+  .markdown-content h2 { font-size: 1.1rem; }
+  .markdown-content h3 { font-size: 1rem; }
+  .markdown-content h4 { font-size: 0.94rem; }
+
+  .markdown-content ul,
+  .markdown-content ol { padding-left: 1.1rem; }
+
+  .markdown-content blockquote {
+    padding: 8px 12px;
+    font-size: 15px;
+  }
+
+  .composer-box {
+    gap: 5px;
+    padding: 4px;
+    border-radius: 20px;
+  }
+
+  .composer textarea {
+    min-height: 42px;
+    padding: 9px 10px;
+    font-size: 15.5px;
+  }
+
+  .send-button,
+  .stop-button {
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0 10px;
+    border-radius: 12px;
+  }
+
+  .new-chat-inline-button {
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 12px;
+  }
+
+  .code-block pre {
+    padding: 11px !important;
+    font-size: 12.5px;
+  }
+
+  .mobile-table-row,
+  .mobile-table-card {
+    padding: 14px 0;
+    gap: 11px;
+  }
+
+  .mobile-table-label { font-size: 10.5px; }
+  .mobile-table-value {
+    font-size: 15px;
+    line-height: 1.6;
+  }
+}
+
+/* ==========================================================================
+   33. Live Response — Mobile Overrides
    ========================================================================== */
 
 @media (max-width: 700px) {
@@ -2833,11 +3336,6 @@ a:focus-visible {
     border-radius: 15px !important;
   }
 }
-
-
-/* ==========================================================================
-   SMALL MOBILE
-   ========================================================================== */
 
 @media (max-width: 420px) {
   .live-response-button {
@@ -2876,12 +3374,39 @@ a:focus-visible {
   }
 }
 
+/* Report button label collapses on small screens */
+@media (max-width: 600px) {
+  .report-button-label {
+    display: none;
+  }
+}
 
 /* ==========================================================================
-   REDUCED MOTION
+   34. Accessibility
    ========================================================================== */
 
+button:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .message,
+  .empty-state,
+  .scroll-button,
   .live-response-button,
   .live-response-pulse,
   .live-response-button::before,
@@ -2889,32 +3414,986 @@ a:focus-visible {
   .live-response-thinking-dot {
     animation: none !important;
   }
+
+  .header-title-gradient {
+    animation: none !important;
+    background-position: 50% 50% !important;
+  }
+
+  .app {
+    background: var(--bg);
+  }
 }
 
 /* ==========================================================================
-   SECURITY REPORT DOWNLOAD BUTTON
+   35. Utility / Safety
    ========================================================================== */
 
-.report-download-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  background-color: blue;
-  color: white;
+[hidden] {
+  display: none !important;
 }
 
-.report-button-label {
-  display: inline;
+button:disabled {
+  cursor: not-allowed;
 }
 
-.report-download-btn svg {
-  flex-shrink: 0;
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-@media (max-width: 600px) {
-  .report-button-label {
-    display: none;
-    
+/* Prevent long indicators, hashes, URLs, and JSON from breaking the layout. */
+.message-content,
+.markdown-content,
+.markdown-content p,
+.markdown-content li,
+.markdown-content td,
+.metadata-footer,
+.kv-line,
+.kv-line-value {
+  overflow-wrap: anywhere;
+}
+
+/* IOC / indicator treatment */
+.ioc,
+.indicator,
+.hash,
+.ip-address,
+.domain-name,
+.url-value {
+  font-family: var(--font-mono);
+  font-size: 0.94em;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* ==========================================================================
+   FINAL READABILITY + RESPONSIVE TYPOGRAPHY OVERRIDES
+   --------------------------------------------------------------------------
+   Surgical patch — appended at end of stylesheet.
+
+   Purpose:
+     1. Raise base assistant/chat body text to readable ChatGPT-level sizes.
+     2. Stop progressive down-scaling of normal content on small screens.
+     3. Make the assistant response surface slightly more distinct.
+     4. Give Risk / Assessment / Evidence sections breathing room.
+     5. Fix the Live Response panel's tiny 12px text.
+     6. Keep code, tables, IOC values, and evidence readable everywhere.
+
+   Nothing above this block is modified. This block only refines sizes,
+   spacing, and the assistant surface. Layout, colors, branding, icons,
+   buttons, animations, dark mode identity, and all functional behavior
+   are preserved unchanged.
+
+   GOLDEN RULE: SMALL SCREEN = LESS SPACE, NOT SMALLER CONTENT.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Assistant response surface — soft, calm, slightly separated from page
+   -------------------------------------------------------------------------- */
+
+.message.assistant .message-content {
+  background: #f8fafc;
+  padding: 18px 22px 18px 18px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-left: 1px solid var(--border-light);
+}
+
+.dark .message.assistant .message-content {
+  background: rgba(255, 255, 255, 0.025);
+  padding: 18px 22px 18px 18px;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  border-left: 1px solid var(--border);
+}
+
+/* --------------------------------------------------------------------------
+   2. Base assistant / markdown typography — desktop-first readable sizes
+   -------------------------------------------------------------------------- */
+
+.markdown-content {
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+.markdown-content p {
+  font-size: 17px;
+  line-height: 1.7;
+  margin-bottom: 1.05rem;
+}
+
+.markdown-content li {
+  font-size: 17px;
+  line-height: 1.7;
+  margin: 0.45rem 0;
+}
+
+.plain-message {
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+/* Assistant response body when *not* wrapped in .markdown-content */
+.message.assistant .message-content {
+  font-size: 17px;
+  line-height: 1.7;
+}
+
+/* --------------------------------------------------------------------------
+   3. Headings — hierarchy preserved, sizes adjusted to modern AI-chat scale
+   -------------------------------------------------------------------------- */
+
+.markdown-content h1 {
+  font-size: 1.6rem;      /* ~25.6px */
+  line-height: 1.3;
+  letter-spacing: -0.021em;
+  margin: 2.2rem 0 1.05rem;
+}
+
+.markdown-content h2 {
+  font-size: 1.34rem;     /* ~21.4px */
+  line-height: 1.34;
+  letter-spacing: -0.016em;
+  margin: 1.9rem 0 0.9rem;
+}
+
+.markdown-content h3 {
+  font-size: 1.14rem;     /* ~18.2px */
+  line-height: 1.4;
+  letter-spacing: -0.012em;
+  margin: 1.6rem 0 0.7rem;
+}
+
+.markdown-content h4 {
+  font-size: 1.02rem;     /* ~16.3px */
+  line-height: 1.42;
+  margin: 1.3rem 0 0.55rem;
+}
+
+/* --------------------------------------------------------------------------
+   4. Lists — comfortable indentation and rhythm
+   -------------------------------------------------------------------------- */
+
+.markdown-content ul,
+.markdown-content ol {
+  padding-left: 1.55rem;
+  margin: 0 0 1.1rem;
+}
+
+.markdown-content li > ul,
+.markdown-content li > ol {
+  padding-left: 1.35rem;
+  margin: 0.45rem 0;
+}
+
+/* --------------------------------------------------------------------------
+   5. Blockquote — readable size, comfortable padding
+   -------------------------------------------------------------------------- */
+
+.markdown-content blockquote {
+  font-size: 16.5px;
+  line-height: 1.7;
+  padding: 13px 18px;
+  margin: 1.35rem 0;
+}
+
+.markdown-content blockquote p {
+  font-size: 16.5px;
+  line-height: 1.7;
+}
+
+/* --------------------------------------------------------------------------
+   6. Inline code + IOC values — never tiny
+   -------------------------------------------------------------------------- */
+
+.inline-code {
+  font-size: 0.94em;
+}
+
+.ioc,
+.indicator,
+.hash,
+.ip-address,
+.domain-name,
+.url-value {
+  font-size: 0.96em;
+}
+
+/* --------------------------------------------------------------------------
+   7. Tables — readable at every size
+   -------------------------------------------------------------------------- */
+
+.responsive-table table {
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.responsive-table th {
+  font-size: 12.5px;
+  letter-spacing: 0.07em;
+  line-height: 1.5;
+}
+
+.responsive-table td {
+  font-size: 15px;
+  line-height: 1.65;
+  padding: 13px 17px;
+}
+
+.mobile-table-label {
+  font-size: 12px;
+  letter-spacing: 0.07em;
+}
+
+.mobile-table-value {
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+/* --------------------------------------------------------------------------
+   8. Code blocks — never below 13px, ever
+   -------------------------------------------------------------------------- */
+
+.code-block pre {
+  font-size: 14.5px;
+  line-height: 1.68;
+}
+
+.code-block pre code,
+.code-block code {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   9. Investigation report — evidence, KV, sources, findings, pills
+   -------------------------------------------------------------------------- */
+
+.report-line {
+  gap: 10px;
+  line-height: 1.65;
+}
+
+.report-line-label {
+  font-size: 15.5px;
+  font-weight: 600;
+}
+
+.status-pill {
+  font-size: 13px;
+  padding: 3.5px 11px 3.5px 10px;
+  line-height: 1.45;
+}
+
+.kv-line {
+  gap: 9px;
+  line-height: 1.65;
+}
+
+.kv-line-key {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.kv-line-value {
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+
+.kv-line-value--block {
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 8px 12px;
+}
+
+.evidence-field {
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+
+.finding-row {
+  font-size: 15.5px;
+  line-height: 1.65;
+  padding: 12px 14px 12px 18px;
+}
+
+.recommendation-row {
+  font-size: 15.5px;
+  line-height: 1.7;
+}
+
+.source-row {
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+
+/* --------------------------------------------------------------------------
+   10. Risk / Assessment / Evidence — breathing room
+   -------------------------------------------------------------------------- */
+
+/* Give assessment headings real separation above */
+.semantic-heading.assessment-heading {
+  margin-top: 2.4rem !important;
+}
+
+/* And give the paragraph under an assessment heading clear separation below */
+.semantic-heading.assessment-heading + p,
+.semantic-heading.assessment-heading + ul,
+.semantic-heading.assessment-heading + ol {
+  margin-top: 0.85rem !important;
+  margin-bottom: 1.35rem !important;
+}
+
+/* Bottom-line gets a little more space above and below */
+.semantic-heading.bottom-line-heading {
+  margin-top: 2.6rem !important;
+}
+
+.semantic-heading.bottom-line-heading + p {
+  margin-bottom: 1.4rem !important;
+}
+
+/* Limitation / Conflicts / Confidence sections shouldn't hug the next heading */
+.semantic-heading.limitations-heading,
+.semantic-heading.conflicts-heading,
+.semantic-heading.confidence-heading,
+.semantic-heading.coverage-heading {
+  margin-top: 1.9rem !important;
+}
+
+/* Status pills and assessment value chips get vertical breathing space */
+.status-value,
+.assessment-value,
+.confidence-value,
+.metric-value {
+  padding: 6px 11px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+   11. Metadata footer — modest bump, not loud
+   -------------------------------------------------------------------------- */
+
+.metadata-footer {
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin-top: 12px;
+}
+
+/* --------------------------------------------------------------------------
+   12. Live Response panel — this must NOT be tiny
+   -------------------------------------------------------------------------- */
+
+.live-response-content {
+  font-size: 15px !important;
+  line-height: 1.68 !important;
+}
+
+.live-response-content p {
+  font-size: 15px !important;
+  line-height: 1.68 !important;
+  margin: 0 0 12px !important;
+}
+
+.live-response-content li {
+  font-size: 15px !important;
+  line-height: 1.68 !important;
+  margin: 5px 0 !important;
+}
+
+.live-response-content h1 {
+  font-size: 19px !important;
+  line-height: 1.32 !important;
+  margin: 18px 0 9px !important;
+}
+
+.live-response-content h2 {
+  font-size: 17px !important;
+  line-height: 1.34 !important;
+  margin: 16px 0 8px !important;
+}
+
+.live-response-content h3 {
+  font-size: 15.5px !important;
+  line-height: 1.38 !important;
+  margin: 14px 0 7px !important;
+}
+
+.live-response-content h4 {
+  font-size: 15px !important;
+  line-height: 1.4 !important;
+  margin: 12px 0 6px !important;
+}
+
+.live-response-content strong {
+  font-size: 15px !important;
+}
+
+.live-response-content code {
+  font-size: 13.5px !important;
+  padding: 2.5px 6px !important;
+}
+
+.live-response-content pre {
+  font-size: 13.5px !important;
+  line-height: 1.6 !important;
+  padding: 12px !important;
+}
+
+.live-response-content blockquote {
+  font-size: 14.5px !important;
+  line-height: 1.65 !important;
+  padding: 10px 13px !important;
+}
+
+.live-response-status {
+  font-size: 11.5px !important;
+}
+
+.live-response-title strong {
+  font-size: 14px !important;
+}
+
+.live-response-thinking {
+  font-size: 12.5px !important;
+  line-height: 17px !important;
+}
+
+.live-response-empty {
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+/* Keep the panel header a touch roomier, but otherwise identical */
+.live-response-panel-header {
+  min-height: 60px !important;
+}
+
+/* --------------------------------------------------------------------------
+   13. Reading width — keep comfortable measure on large desktops
+   -------------------------------------------------------------------------- */
+
+.message.assistant .message-content {
+  max-width: 800px;
+}
+
+/* On tablet, slightly tighter column but full readability */
+@media (min-width: 768px) and (max-width: 1199px) {
+  .message.assistant .message-content {
+    max-width: 100%;
   }
 }
+
+/* --------------------------------------------------------------------------
+   14. TABLET — ≥768px and ≤1199px
+   -------------------------------------------------------------------------- */
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  .markdown-content,
+  .markdown-content p,
+  .markdown-content li,
+  .plain-message,
+  .message.assistant .message-content {
+    font-size: 16.5px;
+    line-height: 1.7;
+  }
+
+  .markdown-content blockquote,
+  .markdown-content blockquote p {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .responsive-table table,
+  .responsive-table td {
+    font-size: 14.5px;
+  }
+
+  .kv-line-value,
+  .evidence-field,
+  .finding-row,
+  .source-row,
+  .recommendation-row {
+    font-size: 15.5px;
+  }
+
+  .live-response-content,
+  .live-response-content p,
+  .live-response-content li {
+    font-size: 15px !important;
+    line-height: 1.68 !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   15. MOBILE — ≤767px  (do NOT shrink normal content below 16px)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 767px) {
+  .markdown-content,
+  .markdown-content p,
+  .markdown-content li,
+  .plain-message,
+  .message.assistant .message-content {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .markdown-content h1 { font-size: 1.42rem; margin: 1.8rem 0 0.85rem; }
+  .markdown-content h2 { font-size: 1.24rem; margin: 1.6rem 0 0.75rem; }
+  .markdown-content h3 { font-size: 1.1rem;  margin: 1.4rem 0 0.6rem; }
+  .markdown-content h4 { font-size: 1rem;    margin: 1.2rem 0 0.5rem; }
+
+  .markdown-content p {
+    margin-bottom: 1.05rem;
+  }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    padding-left: 1.4rem;
+    margin-bottom: 1.05rem;
+  }
+
+  .markdown-content li {
+    margin: 0.42rem 0;
+  }
+
+  .markdown-content li > ul,
+  .markdown-content li > ol {
+    padding-left: 1.2rem;
+  }
+
+  .markdown-content blockquote,
+  .markdown-content blockquote p {
+    font-size: 15.5px;
+    line-height: 1.68;
+    padding: 11px 15px;
+  }
+
+  /* Response panel padding on mobile — reduce horizontal, not text */
+  .message.assistant .message-content {
+    padding: 15px 16px 15px 15px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  .dark .message.assistant .message-content {
+    padding: 15px 16px 15px 15px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  /* Tables — always readable, scroll if needed */
+  .responsive-table table,
+  .responsive-table td {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .responsive-table th {
+    font-size: 12.5px;
+  }
+
+  .mobile-table-label {
+    font-size: 12px;
+  }
+
+  .mobile-table-value {
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  /* Investigation report — stack labels and values cleanly */
+  .kv-line {
+    flex-direction: column;
+    align-items: flex-start;
+    row-gap: 2px;
+  }
+
+  .kv-line-key {
+    font-size: 13.5px;
+  }
+
+  .kv-line-value,
+  .kv-line-value--block {
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  .kv-line-value--block {
+    font-size: 14px;
+    padding: 8px 11px;
+  }
+
+  .report-line {
+    gap: 8px;
+    line-height: 1.6;
+  }
+
+  .report-line-label {
+    font-size: 15px;
+  }
+
+  .evidence-field,
+  .finding-row,
+  .source-row,
+  .recommendation-row {
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+
+  .finding-row {
+    padding: 11px 13px 11px 16px;
+  }
+
+  .status-pill {
+    font-size: 12.5px;
+    padding: 3px 10px;
+  }
+
+  .status-value,
+  .assessment-value,
+  .confidence-value,
+  .metric-value {
+    font-size: 13px;
+    padding: 5px 10px;
+  }
+
+  /* Code blocks — never below 13.5px on mobile */
+  .code-block pre {
+    font-size: 13.5px;
+    line-height: 1.65;
+    padding: 14px !important;
+  }
+
+  .code-block pre code,
+  .code-block code {
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .code-copy-button {
+    font-size: 11.5px;
+    padding: 6px 10px;
+  }
+
+  /* Inline code / IOC values — always readable */
+  .inline-code {
+    font-size: 0.94em;
+  }
+
+  .ioc,
+  .indicator,
+  .hash,
+  .ip-address,
+  .domain-name,
+  .url-value {
+    font-size: 0.96em;
+  }
+
+  /* Live Response on mobile — still readable */
+  .live-response-content,
+  .live-response-content p,
+  .live-response-content li {
+    font-size: 15px !important;
+    line-height: 1.68 !important;
+  }
+
+  .live-response-content h1 {
+    font-size: 18px !important;
+  }
+
+  .live-response-content h2 {
+    font-size: 16px !important;
+  }
+
+  .live-response-content h3 {
+    font-size: 15px !important;
+  }
+
+  .live-response-content pre {
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+  }
+
+  .live-response-content code {
+    font-size: 13px !important;
+  }
+
+  /* Metadata footer */
+  .metadata-footer {
+    font-size: 12.5px;
+  }
+
+  /* Assessment / Bottom-line breathing room on mobile too */
+  .semantic-heading.assessment-heading {
+    margin-top: 2.2rem !important;
+  }
+
+  .semantic-heading.bottom-line-heading {
+    margin-top: 2.4rem !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   16. SMALL MOBILE — ≤480px  (structure changes, NOT text size)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+  /* Normal content stays at 16px — do not shrink */
+  .markdown-content,
+  .markdown-content p,
+  .markdown-content li,
+  .plain-message,
+  .message.assistant .message-content {
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  .markdown-content h1 { font-size: 1.36rem; }
+  .markdown-content h2 { font-size: 1.2rem; }
+  .markdown-content h3 { font-size: 1.08rem; }
+  .markdown-content h4 { font-size: 0.99rem; }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    padding-left: 1.3rem;
+  }
+
+  /* Response padding shrinks further — text does NOT */
+  .message.assistant .message-content,
+  .dark .message.assistant .message-content {
+    padding: 14px 15px 14px 14px;
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+
+  /* Tables — readable size, allow scroll */
+  .responsive-table table,
+  .responsive-table td {
+    font-size: 15px;
+  }
+
+  .mobile-table-value {
+    font-size: 16px;
+  }
+
+  /* Evidence stays readable */
+  .kv-line-value,
+  .evidence-field,
+  .finding-row,
+  .source-row,
+  .recommendation-row {
+    font-size: 15.5px;
+  }
+
+  /* Code stays readable */
+  .code-block pre {
+    font-size: 13.5px;
+    padding: 13px !important;
+  }
+
+  /* Live Response stays readable */
+  .live-response-content,
+  .live-response-content p,
+  .live-response-content li {
+    font-size: 15px !important;
+    line-height: 1.68 !important;
+  }
+
+  /* Composer hint hidden on very small — unchanged rule, reasserted for safety */
+  .composer-hint {
+    display: none;
+  }
+
+  /* Message action buttons stay tappable */
+  .message-action-btn {
+    min-height: 36px;
+    padding: 5px 11px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   17. VERY SMALL MOBILE — ≤360px  (still NOT below 16px for body content)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 360px) {
+  /* Normal response text remains 16px */
+  .markdown-content,
+  .markdown-content p,
+  .markdown-content li,
+  .plain-message,
+  .message.assistant .message-content {
+    font-size: 16px;
+    line-height: 1.68;
+  }
+
+  .markdown-content h1 { font-size: 1.28rem; }
+  .markdown-content h2 { font-size: 1.14rem; }
+  .markdown-content h3 { font-size: 1.04rem; }
+  .markdown-content h4 { font-size: 0.97rem; }
+
+  .markdown-content ul,
+  .markdown-content ol {
+    padding-left: 1.2rem;
+  }
+
+  .markdown-content blockquote,
+  .markdown-content blockquote p {
+    font-size: 15.5px;
+    padding: 9px 12px;
+  }
+
+  /* Response panel — tighter padding, unchanged text size */
+  .message.assistant .message-content,
+  .dark .message.assistant .message-content {
+    padding: 13px 13px 13px 13px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+
+  /* Tables — never below 14.5px */
+  .responsive-table table,
+  .responsive-table td {
+    font-size: 14.5px;
+  }
+
+  .mobile-table-value {
+    font-size: 15.5px;
+  }
+
+  /* Evidence — never below 15px */
+  .kv-line-value,
+  .kv-line-value--block,
+  .evidence-field,
+  .finding-row,
+  .source-row,
+  .recommendation-row {
+    font-size: 15px;
+  }
+
+  .kv-line-value--block {
+    font-size: 13.5px;
+    padding: 7px 10px;
+  }
+
+  /* Code — never below 13px */
+  .code-block pre {
+    font-size: 13px;
+    padding: 12px !important;
+  }
+
+  /* Live Response — never below 14.5px */
+  .live-response-content,
+  .live-response-content p,
+  .live-response-content li {
+    font-size: 14.5px !important;
+    line-height: 1.65 !important;
+  }
+
+  .live-response-content pre {
+    font-size: 12.5px !important;
+  }
+
+  .live-response-content code {
+    font-size: 12.5px !important;
+  }
+
+  /* Status pills and assessment chips */
+  .status-pill {
+    font-size: 12px;
+    padding: 3px 9px;
+  }
+
+  .status-value,
+  .assessment-value,
+  .confidence-value,
+  .metric-value {
+    font-size: 12.5px;
+  }
+
+  .report-line-label {
+    font-size: 14.5px;
+  }
+
+  /* Metadata footer stays small but not microscopic */
+  .metadata-footer {
+    font-size: 12px;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   18. LARGE DESKTOP — comfortable width, not oversized text
+   -------------------------------------------------------------------------- */
+
+@media (min-width: 1440px) {
+  .message.assistant .message-content {
+    max-width: 820px;
+  }
+
+  /* Main response stays at 17px — no artificial inflation */
+  .markdown-content,
+  .markdown-content p,
+  .markdown-content li,
+  .plain-message,
+  .message.assistant .message-content {
+    font-size: 17px;
+    line-height: 1.7;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   19. Horizontal safety — nothing ever breaks the page
+   -------------------------------------------------------------------------- */
+
+.message-content,
+.markdown-content,
+.markdown-content p,
+.markdown-content li,
+.markdown-content td,
+.kv-line,
+.kv-line-value,
+.evidence-field,
+.finding-row,
+.source-row,
+.recommendation-row,
+.metadata-footer {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  min-width: 0;
+}
+
+/* Long URLs / hashes / IDs must never cause page-level horizontal scroll */
+.markdown-content a,
+.ioc,
+.indicator,
+.hash,
+.ip-address,
+.domain-name,
+.url-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Tables scroll horizontally inside their wrapper only */
+.table-wrapper {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* Code scrolls horizontally inside its own block only */
+.code-block pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* --------------------------------------------------------------------------
+   20. Accessibility — preserve reduced motion, reinforce focus visibility
+   -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Existing reduced-motion rules above continue to apply.
+     Nothing here needs to be re-declared. */
+}
+
+/* --------------------------------------------------------------------------
+   END FINAL READABILITY + RESPONSIVE TYPOGRAPHY OVERRIDES
+   -------------------------------------------------------------------------- */

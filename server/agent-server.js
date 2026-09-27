@@ -40,18 +40,15 @@
  * Agent tools are READ-ONLY.
  *
  * IMPORTANT:
- * Censys uses the Censys Platform API:
+ * Censys configuration uses the Censys Platform API token:
  *
  *   CENSYS_API_TOKEN
  *   CENSYS_ORGANIZATION_ID
- *
- * Do NOT use:
- *
- *   CENSYS_API_ID
- *   CENSYS_API_SECRET
  */
 
-require('dotenv').config();
+require('dotenv').config({
+  path: require('path').resolve(__dirname, '.env'),
+});
 
 const express = require('express');
 const cors = require('cors');
@@ -89,6 +86,11 @@ const {
 const {
   generateSecurityReport,
 } = require("./reports/SecurityReportGenerator");
+
+/* =========================================================
+   LAKEWEST DOMAIN SECURITY BRIEF — PDF PRESENTATION
+   Presentation-only renderer. Investigation/provider logic is unchanged.
+========================================================= */
 
 /* =========================================================
    AGENT LAYER
@@ -155,6 +157,22 @@ const {
 const {
   createHIBPTool,
 } = require('./tools/external/hibp');
+
+const {
+  createGoogleWebRiskTool,
+} = require('./tools/external/google-web-risk');
+
+const {
+  createURLhausTool,
+} = require('./tools/external/urlhaus');
+
+const {
+  createPhishingDatabaseTool,
+} = require('./tools/external/phishing-database');
+
+const {
+  createThreatFoxTool,
+} = require('./tools/external/threatfox');
 
 /* =========================================================
    SECURITY ASSESSMENT
@@ -526,6 +544,24 @@ const fallbackEngine =
    AGENT TOOL REGISTRY
 ========================================================= */
 
+function cleanCredentialEnv(name) {
+  const raw = process.env[name];
+  if (typeof raw !== 'string') return undefined;
+
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+
+  if (
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('\"') && trimmed.endsWith('\"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) {
+    return trimmed.slice(1, -1).trim() || undefined;
+  }
+
+  return trimmed;
+}
+
 const toolRegistry =
   new ToolRegistry();
 
@@ -594,6 +630,248 @@ virusTotalTool.targetTypes = ['ip'];
 
 toolRegistry.register(
   virusTotalTool
+);
+
+/* =========================================================
+   VIRUSTOTAL DOMAIN / URL ADAPTER
+=========================================================
+
+ * The existing VirusTotal provider is intentionally IP-specific. Domain
+ * investigations need the same VirusTotal credential and evidence model,
+ * but the VirusTotal v3 domain endpoint. Keep the provider implementation
+ * unchanged and add this narrow adapter at the registration boundary.
+ */
+function normalizeVirusTotalDomainTarget(input) {
+  const raw = String(
+    input?.url ||
+    input?.domain ||
+    ''
+  ).trim();
+
+  if (!raw) return null;
+
+  try {
+    const parsed = new URL(
+      raw.includes('://')
+        ? raw
+        : `https://${raw}`
+    );
+
+    const host = parsed.hostname
+      .replace(/^\.+|\.+$/g, '')
+      .toLowerCase();
+
+    if (!host || host.length > 253) return null;
+    return host;
+  } catch (_) {
+    return null;
+  }
+}
+
+function createVirusTotalDomainTool({
+  apiKey,
+  timeoutMs = Number(process.env.VIRUSTOTAL_TIMEOUT_MS) || 8000,
+} = {}) {
+  return {
+    name: 'virustotal_domain_lookup',
+    description: 'Look up a domain using VirusTotal domain threat intelligence',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        domain: { type: 'string', minLength: 1, maxLength: 253 },
+        url: { type: 'string', minLength: 1, maxLength: 2048 },
+      },
+      additionalProperties: false,
+    },
+    category: 'threat-intelligence',
+    targetTypes: ['domain', 'url'],
+    readOnly: true,
+    destructive: false,
+    riskLevel: 'read',
+    requiresApproval: false,
+
+    async execute(input) {
+      const domain = normalizeVirusTotalDomainTarget(input);
+
+      if (!domain) {
+        return {
+          ok: true,
+          success: true,
+          provider: 'virustotal',
+          status: 'error',
+          message: 'Invalid domain or URL',
+          findings: {},
+          evidence: [],
+        };
+      }
+
+      if (!apiKey) {
+        return {
+          ok: true,
+          success: true,
+          provider: 'virustotal',
+          status: 'unauthorized',
+          message: 'VirusTotal API key is not configured',
+          findings: {},
+          evidence: [],
+        };
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      try {
+        const response = await fetch(
+          `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`,
+          {
+            method: 'GET',
+            headers: {
+              Accept: 'application/json',
+              'x-apikey': apiKey,
+            },
+            signal: controller.signal,
+          }
+        );
+
+        let body = null;
+        try {
+          body = await response.json();
+        } catch (_) {
+          body = null;
+        }
+
+        if (response.status === 200) {
+          const attributes = body?.data?.attributes;
+          if (!attributes || typeof attributes !== 'object') {
+            return {
+              ok: true,
+              success: true,
+              provider: 'virustotal',
+              status: 'error',
+              message: 'VirusTotal returned an unexpected domain response shape',
+              findings: {},
+              evidence: [],
+            };
+          }
+
+          const stats = attributes.last_analysis_stats || {};
+          const findings = Object.fromEntries(
+            Object.entries({
+              domain,
+              reputation: attributes.reputation,
+              malicious: stats.malicious,
+              suspicious: stats.suspicious,
+              harmless: stats.harmless,
+              undetected: stats.undetected,
+              timeout: stats.timeout,
+              lastAnalysisDate: attributes.last_analysis_date,
+              registrar: attributes.registrar,
+              categories: attributes.categories,
+            }).filter(([, value]) => value !== undefined && value !== null)
+          );
+
+          return {
+            ok: true,
+            success: true,
+            provider: 'virustotal',
+            status: 'success',
+            collectedAt: new Date().toISOString(),
+            findings,
+            evidence: Object.entries(findings).map(([field, value]) => ({
+              field,
+              value,
+              source: 'VirusTotal',
+            })),
+            ...findings,
+          };
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          return {
+            ok: true,
+            success: true,
+            provider: 'virustotal',
+            status: 'unauthorized',
+            message: `VirusTotal denied the domain lookup (HTTP ${response.status})`,
+            findings: {},
+            evidence: [],
+          };
+        }
+
+        if (response.status === 429) {
+          return {
+            ok: true,
+            success: true,
+            provider: 'virustotal',
+            status: 'rate_limited',
+            message: 'VirusTotal rate limit reached',
+            findings: {},
+            evidence: [],
+          };
+        }
+
+        if ([500, 502, 503, 504].includes(response.status)) {
+          return {
+            ok: true,
+            success: true,
+            provider: 'virustotal',
+            status: 'unavailable',
+            message: `VirusTotal upstream service returned HTTP ${response.status}`,
+            findings: {},
+            evidence: [],
+          };
+        }
+
+        if (response.status === 404) {
+          return {
+            ok: true,
+            success: true,
+            provider: 'virustotal',
+            status: 'not_found',
+            message: 'VirusTotal did not return the requested domain',
+            findings: {},
+            evidence: [],
+          };
+        }
+
+        return {
+          ok: true,
+          success: true,
+          provider: 'virustotal',
+          status: 'error',
+          message: `VirusTotal returned HTTP ${response.status}`,
+          findings: {},
+          evidence: [],
+        };
+      } catch (error) {
+        return {
+          ok: true,
+          success: true,
+          provider: 'virustotal',
+          status: error?.name === 'AbortError' ? 'timeout' : 'unavailable',
+          message:
+            error?.name === 'AbortError'
+              ? `VirusTotal request timed out after ${timeoutMs}ms`
+              : 'VirusTotal network request failed',
+          findings: {},
+          evidence: [],
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
+
+const virusTotalDomainTool =
+  createVirusTotalDomainTool({
+    apiKey: cleanCredentialEnv('VIRUSTOTAL_API_KEY'),
+    timeoutMs:
+      Number(process.env.VIRUSTOTAL_TIMEOUT_MS) || 8000,
+  });
+
+toolRegistry.register(
+  virusTotalDomainTool
 );
 
 /* =========================================================
@@ -708,29 +986,191 @@ console.log(
    SECURITYTRAILS
 ========================================================= */
 
-toolRegistry.register(
+const securityTrailsTool =
   createSecurityTrailsTool({
     apiKey:
-      process.env.SECURITYTRAILS_API_KEY,
+      cleanCredentialEnv('SECURITYTRAILS_API_KEY'),
 
     timeoutMs:
       Number(
         process.env.SECURITYTRAILS_TIMEOUT_MS
       ) || 8000,
-  })
+  });
+
+toolRegistry.register(
+  securityTrailsTool
 );
 
 /* =========================================================
    MOZILLA OBSERVATORY
 ========================================================= */
 
-toolRegistry.register(
+const mozillaObservatoryTool =
   createMozillaObservatoryTool({
     timeoutMs:
       Number(
         process.env.MOZILLA_OBSERVATORY_TIMEOUT_MS
       ) || 8000,
-  })
+  });
+
+/*
+ * The existing Observatory provider correctly normalizes a URL to a
+ * hostname, but its v2 request places `host` in the JSON body. The current
+ * Observatory v2 API documents `host` as a query parameter on the POST
+ * endpoint. Keep the provider file unchanged and correct only this request
+ * adapter here. The returned result shape/status remains unchanged.
+ */
+const originalMozillaObservatoryExecute =
+  mozillaObservatoryTool.execute.bind(mozillaObservatoryTool);
+mozillaObservatoryTool.execute = async (input) => {
+  const rawTarget = String(
+    input?.url ||
+    input?.domain ||
+    ''
+  ).trim();
+
+  if (!rawTarget) {
+    return originalMozillaObservatoryExecute(input);
+  }
+
+  let host;
+  try {
+    host = new URL(
+      rawTarget.includes('://')
+        ? rawTarget
+        : `https://${rawTarget}`
+    ).hostname;
+  } catch (_) {
+    return originalMozillaObservatoryExecute(input);
+  }
+
+  if (!host) {
+    return originalMozillaObservatoryExecute(input);
+  }
+
+  const timeoutMs =
+    Number(
+      process.env.MOZILLA_OBSERVATORY_TIMEOUT_MS
+    ) || 8000;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMs
+  );
+
+  try {
+    const endpoint =
+      `https://observatory-api.mdn.mozilla.net/api/v2/scan?host=${encodeURIComponent(host)}`;
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch (_) {
+      payload = null;
+    }
+
+    if (response.status === 408 || response.status === 504) {
+      return {
+        ok: false,
+        success: false,
+        provider: 'mozilla_observatory',
+        status: 'timeout',
+        collectedAt: new Date().toISOString(),
+        message: `Mozilla Observatory returned HTTP ${response.status}`,
+        findings: {},
+        evidence: [],
+      };
+    }
+
+    if (!response.ok) {
+      const status =
+        response.status === 401 ||
+        response.status === 403
+          ? 'unauthorized'
+          : response.status === 429
+            ? 'rate_limited'
+            : 'error';
+
+      return {
+        ok: false,
+        success: false,
+        provider: 'mozilla_observatory',
+        status,
+        collectedAt: new Date().toISOString(),
+        message: `Mozilla Observatory returned HTTP ${response.status}`,
+        findings: {},
+        evidence: [],
+      };
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return {
+        ok: false,
+        success: false,
+        provider: 'mozilla_observatory',
+        status: 'error',
+        collectedAt: new Date().toISOString(),
+        message: 'Mozilla Observatory returned an unexpected response shape',
+        findings: {},
+        evidence: [],
+      };
+    }
+
+    const findings = Object.fromEntries(
+      Object.entries({
+        host,
+        scanId: payload.scan_id ?? payload.id,
+        score: payload.score,
+        status: payload.state || payload.status,
+        grade: payload.grade,
+        testsFailed: payload.tests_failed,
+        testsPassed: payload.tests_passed,
+        tests: payload.tests,
+      }).filter(([, value]) => value !== undefined && value !== null)
+    );
+
+    return {
+      ok: true,
+      success: true,
+      provider: 'mozilla_observatory',
+      status: 'success',
+      collectedAt: new Date().toISOString(),
+      findings,
+      evidence: Object.entries(findings).map(
+        ([field, value]) => ({
+          field,
+          value,
+          source: 'mozilla_observatory',
+        })
+      ),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      success: false,
+      provider: 'mozilla_observatory',
+      status: error?.name === 'AbortError' ? 'timeout' : 'unavailable',
+      collectedAt: new Date().toISOString(),
+      message: error?.message || 'Mozilla Observatory request failed',
+      findings: {},
+      evidence: [],
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+toolRegistry.register(
+  mozillaObservatoryTool
 );
 
 /* =========================================================
@@ -768,6 +1208,161 @@ toolRegistry.register(
       'AI-Security-Assistant',
   })
 );
+
+/* =========================================================
+   URL / DOMAIN REPUTATION PROVIDERS
+========================================================= */
+
+const googleWebRiskTool =
+  createGoogleWebRiskTool({
+    apiKey:
+      cleanCredentialEnv('GOOGLE_WEB_RISK_API_KEY'),
+
+    timeoutMs:
+      Number(
+        process.env.GOOGLE_WEB_RISK_TIMEOUT_MS
+      ) || 8000,
+  });
+googleWebRiskTool.name = 'google-web-risk';
+
+const originalGoogleWebRiskExecute =
+  googleWebRiskTool.execute.bind(googleWebRiskTool);
+googleWebRiskTool.execute = async (input) => {
+  const key = cleanCredentialEnv('GOOGLE_WEB_RISK_API_KEY');
+  if (!key) {
+    return {
+      ok: false,
+      success: false,
+      provider: 'google-web-risk',
+      status: 'not_configured',
+      collectedAt: new Date().toISOString(),
+      message: 'Google Web Risk API key is not configured',
+      findings: {},
+      evidence: [],
+    };
+  }
+
+  const result = await originalGoogleWebRiskExecute(input);
+  if (result?.status === 'unauthorized' && result?.message) {
+    return {
+      ...result,
+      message:
+        "Google Web Risk returned HTTP 403. The API key is present but the request was rejected. Check that the Web Risk API is enabled for the key's Google Cloud project and that the key is valid and permitted for Web Risk. This server does not expose the key.",
+    };
+  }
+
+  return result;
+};
+
+toolRegistry.register(
+  googleWebRiskTool
+);
+
+const urlhausTool =
+  createURLhausTool({
+    authKey:
+      cleanCredentialEnv('URLHAUS_AUTH_KEY'),
+
+    timeoutMs:
+      Number(
+        process.env.URLHAUS_TIMEOUT_MS
+      ) || 8000,
+  });
+urlhausTool.name = 'urlhaus';
+toolRegistry.register(
+  urlhausTool
+);
+
+const phishingDatabaseTool =
+  createPhishingDatabaseTool({
+    feedUrl: cleanCredentialEnv('PHISHING_DATABASE_FEED_URL'),
+    timeoutMs:
+      Number(process.env.PHISHING_DATABASE_TIMEOUT_MS) || 10000,
+    refreshIntervalMs:
+      Number(process.env.PHISHING_DATABASE_REFRESH_MS) || 6 * 60 * 60 * 1000,
+  });
+phishingDatabaseTool.name = 'phishing_database';
+toolRegistry.register(phishingDatabaseTool);
+
+const threatFoxTool =
+  createThreatFoxTool({
+    authKey:
+      cleanCredentialEnv('THREATFOX_AUTH_KEY'),
+
+    timeoutMs:
+      Number(
+        process.env.THREATFOX_TIMEOUT_MS
+      ) || 8000,
+  });
+threatFoxTool.name = 'threatfox';
+toolRegistry.register(
+  threatFoxTool
+);
+
+/* =========================================================
+   REQUIRED-TOOL RESOLVER COMPATIBILITY ALIASES
+=========================================================
+
+/*
+ * RequiredToolResolver uses the provider factory identifiers for
+ * deterministic controller execution, while Investigation normalizes
+ * those identifiers to the canonical provider names above.
+ *
+ * Keep the canonical IDs required by Investigation, and register the
+ * existing factory IDs as aliases against the same implementations so
+ * controller lookup cannot fall through to "Tool is not registered".
+ */
+
+toolRegistry.register({
+  ...googleWebRiskTool,
+  name: 'google_web_risk_lookup',
+});
+
+toolRegistry.register({
+  ...urlhausTool,
+  name: 'urlhaus_lookup',
+});
+
+toolRegistry.register({
+  ...phishingDatabaseTool,
+  name: 'phishing_database_lookup',
+});
+
+toolRegistry.register({
+  ...threatFoxTool,
+  name: 'threatfox_lookup',
+});
+
+/* =========================================================
+   TOOL REGISTRATION DIAGNOSTICS
+========================================================= */
+
+const REPUTATION_TOOL_IDS = [
+  'virustotal_domain_lookup',
+  'google-web-risk',
+  'urlhaus',
+  'phishing_database',
+  'threatfox',
+  'google_web_risk_lookup',
+  'urlhaus_lookup',
+  'phishing_database_lookup',
+  'threatfox_lookup',
+];
+
+function getReputationToolRegistrationStatus() {
+  const registered = new Set(
+    toolRegistry
+      .list()
+      .map((tool) => tool.name)
+  );
+
+  return Object.fromEntries(
+    REPUTATION_TOOL_IDS.map((id) => [
+      id,
+      registered.has(id),
+    ])
+  );
+}
 
 /* =========================================================
    AGENT PROVIDERS
@@ -883,6 +1478,11 @@ console.log(
   }`
 );
 
+console.log(
+  '[Agent] Reputation tool registration:',
+  getReputationToolRegistrationStatus()
+);
+
 /* =========================================================
    MIDDLEWARE
 ========================================================= */
@@ -943,7 +1543,7 @@ app.use(
 
 app.use(
   express.json({
-    limit: '100kb',
+    limit: '1mb',
   })
 );
 
@@ -1466,6 +2066,9 @@ app.get(
                 tool.name
             ),
 
+        reputationTools:
+          getReputationToolRegistrationStatus(),
+
         structured:
           getStructuredCompliance(),
 
@@ -1552,6 +2155,9 @@ app.get(
                   tool.riskLevel,
               })
             ),
+
+        reputationTools:
+          getReputationToolRegistrationStatus(),
 
         structured:
           getStructuredCompliance(),
@@ -2828,13 +3434,12 @@ app.post(
         });
       }
 
-      const pdf =
-        await generateSecurityReport({
-          investigation,
-          metadata,
-          target,
-          requestId,
-        });
+      const pdf = await generateSecurityReport({
+        investigation: investigation || metadata?.investigation || null,
+        metadata,
+        target,
+        requestId,
+      });
 
       const safeTarget =
         String(

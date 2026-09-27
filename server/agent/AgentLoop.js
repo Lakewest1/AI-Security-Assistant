@@ -133,6 +133,7 @@ class AgentLoop {
     maxToolCalls = DEFAULT_MAX_TOOL_CALLS,
     maxSameToolCalls = DEFAULT_MAX_SAME_TOOL_CALLS,
     maxToolResultChars = DEFAULT_MAX_TOOL_RESULT_CHARS,
+    domainInvestigation = null,
   }) {
     this.toolRegistry = toolRegistry;
     this.toolPolicy = toolPolicy;
@@ -144,6 +145,7 @@ class AgentLoop {
     this.maxToolCalls = maxToolCalls;
     this.maxSameToolCalls = maxSameToolCalls;
     this.maxToolResultChars = maxToolResultChars;
+    this.domainInvestigation = domainInvestigation;
   }
 
   _emit(event, payload) {
@@ -233,12 +235,15 @@ class AgentLoop {
     const target =
       state.requiredToolArguments?.virustotal_ip_lookup?.ip ||
       state.requiredToolArguments?.abuseipdb_ip_lookup?.ip ||
+      state.target?.value ||
       evidence?.input?.ip ||
+      evidence?.input?.domain ||
       null;
+    const targetType = state.target?.type === "ipv4" ? "ip" : (state.target?.type || "ip");
 
     state.investigation = buildInvestigationFromEvidence({
       target,
-      targetType: "ip",
+      targetType,
       rawToolEvidence: state.rawToolEvidence,
       startedAt: new Date(state.startedAt || Date.now()).toISOString(),
       completed: false,
@@ -537,6 +542,26 @@ class AgentLoop {
         requestId,
         userContext,
       });
+    }
+
+    // Domain investigations may discover IPs during the first evidence wave.
+    // Reuse this controller's validation/policy/deduplication path for the
+    // dependent IP lookups rather than creating a second execution framework.
+    if (state.investigationType === "domain" && this.domainInvestigation) {
+      const dependent = this.domainInvestigation.getDependentTools({
+        domain: state.target?.value,
+        rawToolEvidence: state.rawToolEvidence,
+        toolRegistry: this.toolRegistry,
+        capabilities: userContext?.capabilities || [],
+      });
+      this._emit("agent_domain_dependent_tools_selected", {
+        requestId, domain: state.target?.value, ips: dependent.ips,
+        tools: dependent.tools.map((x) => ({ tool: x.name, ip: x.ip })),
+      });
+      await Promise.allSettled(dependent.tools.map(({ name, ip }) => this._executeTool({
+        state, toolName: name, input: { ip }, toolCallId: `controller_domain_${crypto.randomUUID()}`,
+        requestId, userContext, iteration: state.iteration, controllerExecuted: true,
+      })));
     }
 
     // Required security tools have already been collected by the controller.

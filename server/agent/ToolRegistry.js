@@ -54,6 +54,7 @@ class ToolRegistry {
       destructive: (tool.riskLevel || "read") === "destructive",
       riskLevel: tool.riskLevel || "read",
       requiresApproval: Boolean(tool.requiresApproval),
+      requiredCapability: tool.requiredCapability || null,
       timeout: Number(tool.timeout) || null,
       retryable: tool.retryable !== false,
       execute: tool.execute,
@@ -90,6 +91,7 @@ class ToolRegistry {
       name: tool.name,
       description: tool.description,
       input_schema: tool.inputSchema,
+      required_capability: tool.requiredCapability || undefined,
     }));
   }
 }

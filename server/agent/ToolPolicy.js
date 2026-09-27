@@ -31,6 +31,13 @@ class ToolPolicy {
       };
     }
 
+    if (tool.requiredCapability) {
+      const capabilities = Array.isArray(userContext?.capabilities) ? userContext.capabilities : null;
+      if (capabilities && !capabilities.includes(tool.requiredCapability)) {
+        return { allowed: false, reason: `capability "${tool.requiredCapability}" is not authorized` };
+      }
+    }
+
     if (tool.requiresApproval) {
       return {
         allowed: false,

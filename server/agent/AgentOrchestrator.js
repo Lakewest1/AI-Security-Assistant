@@ -8,6 +8,9 @@
 
 const { resolveRequiredTools } = require("./RequiredToolResolver");
 const { buildInvestigationFromEvidence } = require("./Investigation");
+const { DomainInvestigation } = require("./DomainInvestigation");
+const { buildSecurityReasoning } = require("./SecurityReasoning");
+const SecurityReportGenerator = require("../reports/SecurityReportGenerator");
 function classifyProviderError(error) {
   const category = String(error?.category || "").toLowerCase();
   if (category) return category;
@@ -34,12 +37,14 @@ function classifyProviderError(error) {
 
 
 class AgentOrchestrator {
-  constructor({ agentLoop, agentProviders = [], agentProviderOptions = {}, auditLogger, requiredToolResolver = resolveRequiredTools }) {
+  constructor({ agentLoop, agentProviders = [], agentProviderOptions = {}, auditLogger, requiredToolResolver = resolveRequiredTools, domainInvestigation = null, reportGenerator = null }) {
     this.agentLoop = agentLoop;
     this.agentProviders = agentProviders;
     this.agentProviderOptions = agentProviderOptions;
     this.auditLogger = auditLogger;
     this.requiredToolResolver = requiredToolResolver;
+    this.domainInvestigation = domainInvestigation || new DomainInvestigation({ auditLogger });
+    this.reportGenerator = reportGenerator || new SecurityReportGenerator();
   }
 
   isConfigured() {
@@ -75,6 +80,9 @@ class AgentOrchestrator {
       iteration: 0,
       toolCallCount: 0,
       requiredTools: requirement.requiredTools || [],
+      investigationType: requirement.investigationType || requirement.targets?.[0]?.type || null,
+      target: requirement.targets?.[0] || null,
+      requiredCapabilities: requirement.requiredCapabilities || [],
       requiredToolArguments: requirement.requiredToolArguments || {},
       completedRequiredTools: [],
       attemptedRequiredTools: [],
@@ -102,7 +110,9 @@ class AgentOrchestrator {
       completed: false,
     });
 
-    this._emit("agent_started", { requestId, requiredTools: sharedState.requiredTools, targets: requirement.targets || [] });
+    this._emit("agent_started", { requestId, requiredTools: sharedState.requiredTools, targets: requirement.targets || [], investigationType: sharedState.investigationType, requiredCapabilities: sharedState.requiredCapabilities });
+    if (sharedState.target) this._emit("agent_target_normalized", { requestId, target: sharedState.target, investigationType: sharedState.investigationType });
+    this._emit("agent_tools_selected", { requestId, tools: sharedState.requiredTools, investigationType: sharedState.investigationType });
     for (const tool of sharedState.requiredTools) this._emit("agent_tool_expected", { requestId, tool });
 
     let lastError = null;
@@ -144,6 +154,16 @@ class AgentOrchestrator {
           startedAt: new Date(sharedState.startedAt).toISOString(),
           completed: true,
         });
+        if (sharedState.investigationType === "domain") {
+          const domainData = this.domainInvestigation.normalize({
+            domain: requirement.targets?.[0]?.value,
+            rawToolEvidence: sharedState.rawToolEvidence,
+            baseInvestigation: sharedState.investigation,
+          });
+          sharedState.investigation = { ...sharedState.investigation, ...domainData, targetType: "domain", target: requirement.targets?.[0]?.value || null };
+          sharedState.reasoning = buildSecurityReasoning({ investigation: sharedState.investigation, rawToolEvidence: sharedState.rawToolEvidence });
+          sharedState.report = this.reportGenerator.generateDomainInvestigationReport(sharedState.investigation);
+        }
         sharedState.terminationReason = "completed";
         this._emit("agent_provider_succeeded", { requestId, provider: provider.name, durationMs: attempt.durationMs });
         this._emit("agent_finished", {
@@ -165,6 +185,8 @@ class AgentOrchestrator {
           attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
           missingRequiredTools: sharedState.requiredTools.filter((tool) => !sharedState.attemptedRequiredTools.includes(tool)),
           investigation: sharedState.investigation,
+          reasoning: sharedState.reasoning || null,
+          report: sharedState.report || null,
           executedToolCalls: [...sharedState.executedToolCalls],
           providerAttempts: sharedState.providerAttempts.map((a) => ({ ...a })),
           metadata: {
@@ -244,6 +266,8 @@ class AgentOrchestrator {
         attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
         missingRequiredTools: sharedState.requiredTools.filter((tool) => !sharedState.attemptedRequiredTools.includes(tool)),
         investigation: sharedState.investigation,
+        reasoning: sharedState.reasoning || null,
+        report: sharedState.report || null,
         executedToolCalls: [...sharedState.executedToolCalls],
         providerAttempts: sharedState.providerAttempts.map((a) => ({ ...a })),
         metadata: {
