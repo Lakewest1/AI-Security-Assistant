@@ -30,10 +30,10 @@ class GroqProvider extends BaseProvider {
     );
 
     if (options.stream) {
-      return response;
+      return this.limitResponseStream(response);
     }
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
 
     try {
@@ -116,7 +116,7 @@ class GroqProvider extends BaseProvider {
       timeoutMs
     );
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
 
     try {

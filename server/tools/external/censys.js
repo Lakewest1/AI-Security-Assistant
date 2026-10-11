@@ -10,6 +10,21 @@ const {
 
 const DEFAULT_TIMEOUT_MS =
   Number(process.env.CENSYS_TIMEOUT_MS) || 8000;
+const MAX_CENSYS_ERROR_LOG_BYTES = 128;
+
+function censysErrorDiagnostic(status) {
+  const safeStatus = Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : null;
+  const diagnostic = {
+    status: safeStatus,
+    category: safeStatus === null ? "error" : statusForHttp(safeStatus),
+  };
+  if (Buffer.byteLength(JSON.stringify(diagnostic), "utf8") > MAX_CENSYS_ERROR_LOG_BYTES) {
+    return { status: null, category: "error" };
+  }
+  return diagnostic;
+}
 
 function createCensysTool({
   apiToken,
@@ -113,53 +128,16 @@ function createCensysTool({
         // ----------------------------------------------------------
 
         if (!response.ok) {
-          /*
-           * Never expose the Authorization header or token.
-           */
-
-          let errorDetails = "";
-
-          if (
-            payload &&
-            typeof payload === "object"
-          ) {
-            const safePayload = compactObject({
-              error: payload.error,
-              code: payload.code,
-              message: payload.message,
-              detail: payload.detail,
-              title: payload.title,
-              type: payload.type,
-            });
-
-            if (
-              Object.keys(safePayload).length > 0
-            ) {
-              errorDetails =
-                `: ${JSON.stringify(safePayload)}`;
-            }
-          } else if (
-            typeof payload === "string"
-          ) {
-            errorDetails =
-              `: ${payload.slice(0, 500)}`;
-          }
-
+          const diagnostic = censysErrorDiagnostic(response.status);
           console.warn(
-            `[Censys] HTTP ${response.status}`,
-            {
-              ip,
-              status: response.status,
-              message:
-                errorDetails ||
-                "No error body returned",
-            }
+            "[Censys] Provider request failed",
+            diagnostic
           );
 
           return publicResult(
             "censys",
             statusForHttp(response.status),
-            `Censys returned HTTP ${response.status}${errorDetails}`
+            "Censys request failed"
           );
         }
 

@@ -39,10 +39,10 @@ class AnthropicProvider extends BaseProvider {
     );
 
     if (options.stream) {
-      return response;
+      return this.limitResponseStream(response);
     }
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
 
     try {
@@ -133,7 +133,7 @@ class AnthropicProvider extends BaseProvider {
       timeoutMs
     );
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
 
     try {

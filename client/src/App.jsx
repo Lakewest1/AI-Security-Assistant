@@ -51,6 +51,8 @@ import {
   Clock,
   ListChecks,
   Radar,
+  Database,
+  BrainCircuit,
   X,
   Minimize2,
   FileText,
@@ -58,6 +60,10 @@ import {
 } from "lucide-react";
 
 import "./App.css";
+import AuthControls from "./components/AuthControls.jsx";
+import ResearchPanel from "./components/ResearchPanel.jsx";
+import { supabase } from "./lib/supabase.js";
+import { fetchAgentRequest } from "./lib/agentRequest.js";
 
 /* ==========================================================================
 CONFIGURATION
@@ -88,7 +94,7 @@ const AGENT_THINKING_WORDS = [
 ];
 
 const INITIAL_GREETING =
-  "Hello. I'm your AI Security Assistant. I can help with cybersecurity, cloud and application security, identity, incident response, digital privacy, and everyday safety. What would you like to explore?";
+  "Hello. I'm Lakewest AI. I can help with cybersecurity, cloud and application security, identity, incident response, digital privacy, and everyday safety. What would you like to explore?";
 
 const CLEARED_GREETING =
   "Chat cleared. Ready for a new security or safety question.";
@@ -1381,6 +1387,102 @@ const CodeBlock = memo(
 MESSAGE ITEM
 ========================================================================== */
 
+function investigationScore(value) {
+  if (value === null || value === undefined || value === "") return "Unknown";
+  const score = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(score) && score >= 0 && score <= 100
+    ? `${Math.round(score)}/100`
+    : "Unknown";
+}
+
+function investigationLabel(value) {
+  const label = String(value || "unknown").trim().toLowerCase();
+  if (!label || label === "unknown" || label === "insufficient_evidence") return "Unknown";
+  return label.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+const SecurityInvestigationOverview = memo(function SecurityInvestigationOverview({ investigation, metadata }) {
+  const risk = investigation?.risk || {};
+  const coverage = investigation?.coverage || {};
+  const confidence = investigation?.confidence || {};
+  const curator = investigation?.curator || {};
+  const threat = investigationLabel(risk.externalThreat || risk.level);
+  const environmentalImpact = investigationLabel(risk.environmentalRisk);
+  const meaningful = coverage.meaningful !== null && coverage.meaningful !== undefined && coverage.meaningful !== "" && Number.isFinite(Number(coverage.meaningful)) ? Number(coverage.meaningful) : null;
+  const consulted = coverage.consulted !== null && coverage.consulted !== undefined && coverage.consulted !== "" && Number.isFinite(Number(coverage.consulted)) ? Number(coverage.consulted) : null;
+  const coverageValue = meaningful !== null && consulted !== null ? `${meaningful}/${consulted}` : "Unknown";
+  const confidenceValue = investigationLabel(confidence.evidenceConfidenceLevel || confidence.externalIntelligence || confidence.externalConfidence);
+  const reasoningUnavailable = metadata?.aiAnalysis === "unavailable" || metadata?.reasoningStatus === "fallback";
+  const narrativeSections = [
+    ["What matters", curator.whatMatters],
+    ["Important context", curator.importantContext],
+    ["What remains unknown", curator.whatWeDoNotKnow],
+    ["Recommended next step", curator.recommendedNextStep],
+  ];
+
+  return (
+    <section className="security-overview" aria-label="Security investigation overview">
+      <div className="security-overview-target">
+        <span className="security-overview-target-label">Investigation</span>
+        <strong>{investigation?.target || "Target unavailable"}</strong>
+        <span className="security-overview-status">{investigationLabel(investigation?.status)}</span>
+      </div>
+      <div className="security-result-grid" aria-label="Investigation results">
+        <article className={`security-result-card threat-${String(risk.externalThreat || risk.level || "unknown").toLowerCase()}`}>
+          <ShieldAlert size={19} aria-hidden="true" />
+          <span className="security-result-label">External Threat</span>
+          <strong>{threat}</strong>
+          <small>External reputation evidence</small>
+        </article>
+        <article className="security-result-card result-risk">
+          <Gauge size={19} aria-hidden="true" />
+          <span className="security-result-label">Risk Score</span>
+          <strong>{investigationScore(risk.score)}</strong>
+          <small>{risk.scoreSemantics || "Bounded heuristic, not probability"}</small>
+        </article>
+        <article className="security-result-card result-coverage">
+          <Database size={19} aria-hidden="true" />
+          <span className="security-result-label">Evidence Coverage</span>
+          <strong>{coverageValue}</strong>
+          <small>Meaningful sources / consulted</small>
+        </article>
+        <article className="security-result-card result-confidence">
+          <CheckCircle2 size={19} aria-hidden="true" />
+          <span className="security-result-label">Evidence Confidence</span>
+          <strong>{confidenceValue}</strong>
+          <small>External intelligence evidence</small>
+        </article>
+        <article className={`security-result-card result-environment ${environmentalImpact === "Unknown" ? "is-unknown" : ""}`}>
+          <Activity size={19} aria-hidden="true" />
+          <span className="security-result-label">Environmental Impact</span>
+          <strong>{environmentalImpact}</strong>
+          <small>{environmentalImpact === "Unknown" ? "Internal telemetry is needed" : "Based on supplied internal telemetry"}</small>
+        </article>
+      </div>
+      <section className="security-curator" aria-label="Lakewest AI Curator">
+        <div className="security-curator-heading">
+          <BrainCircuit size={23} aria-hidden="true" />
+          <h2>Lakewest AI Curator</h2>
+        </div>
+        {reasoningUnavailable && (
+          <p className="security-curator-notice" role="status">AI reasoning was unavailable. This summary uses the deterministic evidence narrative.</p>
+        )}
+        <div className="security-curator-grid">
+          {narrativeSections.map(([title, content]) => (
+            <section className="security-curator-item" key={title}>
+              <h3>{title}</h3>
+              <p>{typeof content === "string" && content.trim() ? content : "No additional information was established from the available evidence."}</p>
+            </section>
+          ))}
+        </div>
+        {typeof curator.freshnessNote === "string" && curator.freshnessNote.trim() && (
+          <p className="security-curator-freshness">{curator.freshnessNote}</p>
+        )}
+      </section>
+    </section>
+  );
+});
+
 const MessageItem = memo(
   function MessageItem({
     message,
@@ -1489,7 +1591,15 @@ const MessageItem = memo(
           {!isUser &&
           !message.isError ? (
             <>
-              <div className="markdown-content">
+              {hasInvestigation && (
+                <SecurityInvestigationOverview
+                  investigation={message.metadata.investigation}
+                  metadata={message.metadata}
+                />
+              )}
+              <details className={`message-details ${hasInvestigation ? "investigation-details" : ""}`} open={!hasInvestigation}>
+                {hasInvestigation && <summary>Detailed investigation</summary>}
+                <div className="markdown-content">
                 <ReactMarkdown
                   remarkPlugins={[
                     remarkGfm,
@@ -1576,7 +1686,8 @@ const MessageItem = memo(
                     message.displayContent
                   }
                 </ReactMarkdown>
-              </div>
+                </div>
+              </details>
 
               {message.metadata
                 ?.responseTimeMs ? (
@@ -1995,6 +2106,9 @@ function App() {
   const [isAgentMode, setIsAgentMode] =
     useState(false);
 
+  const [isResearchMode, setIsResearchMode] =
+    useState(false);
+
   const [thinkingWord, setThinkingWord] =
     useState(
       THINKING_WORDS[0]
@@ -2363,27 +2477,23 @@ function App() {
           : "/api/chat";
 
         try {
-          const response =
-            await fetch(
-              `${API_URL}${endpoint}`,
-              {
-                method: "POST",
+          const requestOptions = {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              messages: apiMessages,
+              conversationId,
+            }),
+            signal: controller.signal,
+          };
+          const requestUrl = `${API_URL}${endpoint}`;
+          const response = useAgent
+            ? await fetchAgentRequest(requestUrl, requestOptions, supabase?.auth)
+            : await fetch(requestUrl, requestOptions);
 
-                headers: {
-                  "Content-Type":
-                    "application/json",
-                },
-
-                body: JSON.stringify({
-                  messages:
-                    apiMessages,
-                  conversationId,
-                }),
-
-                signal:
-                  controller.signal,
-              }
-            );
+          if (controller.signal.aborted || requestAbortRef.current !== controller) return;
 
           if (!response.ok) {
             const data =
@@ -2401,6 +2511,8 @@ function App() {
 
           const data =
             await response.json();
+
+          if (controller.signal.aborted || requestAbortRef.current !== controller) return;
 
           if (
             data.conversationId
@@ -2462,10 +2574,7 @@ function App() {
             );
           }
         } catch (error) {
-          if (
-            error.name ===
-            "AbortError"
-          ) {
+          if (error.name === "AbortError" || controller.signal.aborted || requestAbortRef.current !== controller) {
             return;
           }
 
@@ -2499,16 +2608,12 @@ function App() {
             ]
           );
         } finally {
-          if (
-            requestAbortRef.current ===
-            controller
-          ) {
+          if (requestAbortRef.current === controller) {
             requestAbortRef.current =
               null;
+            setIsRequesting(false);
+            setIsAgentMode(false);
           }
-
-          setIsRequesting(false);
-          setIsAgentMode(false);
         }
       },
       [
@@ -3230,6 +3335,7 @@ function App() {
           </div>
 
           <div className="header-actions">
+            <AuthControls />
             <button
               type="button"
               className="icon-button"
@@ -3306,7 +3412,7 @@ function App() {
               </div>
 
               <p className="empty-state-eyebrow">
-                AI Security Assistant
+                Lakewest AI
               </p>
 
               <h2 className="empty-state-title">
@@ -3486,6 +3592,7 @@ function App() {
             LIVE RESPONSE BUTTON
             ================================================================== */}
 
+        {!isResearchMode && <>
         <LiveResponseButton
           isRequesting={
             isRequesting
@@ -3530,6 +3637,7 @@ function App() {
             handleStop
           }
         />
+        </>}
 
         {/* ==================================================================
             COMPOSER
@@ -3537,6 +3645,36 @@ function App() {
 
         <div className="composer">
           <div className="composer-inner">
+            <div className="research-mode-switch" aria-label="Choose a mode">
+              <button
+                type="button"
+                aria-pressed={!isResearchMode}
+                disabled={isRequesting || isResearchMode}
+                onClick={() => setIsResearchMode(false)}
+              >
+                Chat &amp; Security Investigation
+              </button>
+              <button
+                type="button"
+                aria-pressed={isResearchMode}
+                disabled={isRequesting || isResearchMode}
+                onClick={() => {
+                  setShowLiveResponse(false);
+                  setIsResearchMode(true);
+                }}
+              >
+                Public Research
+              </button>
+            </div>
+
+            {isResearchMode ? (
+              <ResearchPanel
+                apiUrl={API_URL}
+                auth={supabase?.auth}
+                onClose={() => setIsResearchMode(false)}
+              />
+            ) : (
+              <>
             <div className="composer-box">
               <button
                 type="button"
@@ -3611,6 +3749,8 @@ function App() {
               Enter to send · Shift +
               Enter for newline
             </p>
+              </>
+            )}
           </div>
         </div>
       </main>

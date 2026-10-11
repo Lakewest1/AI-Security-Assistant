@@ -4,7 +4,7 @@ function hostFor(input){const raw=String(input?.url||input?.domain||"").trim();i
 function createMozillaObservatoryTool({timeoutMs=DEFAULT_TIMEOUT_MS}={}) {
  return {name:"mozilla_observatory_scan",description:"Assess web security posture and headers using Mozilla Observatory.",
  inputSchema:{type:"object",properties:{domain:{type:"string",minLength:3,maxLength:253},url:{type:"string",minLength:4,maxLength:2048}},additionalProperties:false,minProperties:1},
- category:"security-posture",targetTypes:["domain","url"],readOnly:true,destructive:false,riskLevel:"read",requiresApproval:false,
+ category:"security-posture",targetTypes:["domain","url"],readOnly:false,destructive:false,riskLevel:"write",requiredCapability:"security_remote_scan",requiresApproval:true,
  async execute(input){const host=hostFor(input);if(!host)return publicResult("mozilla_observatory","error","Invalid domain or URL");
  try{const {response,payload}=await fetchWithRetry("https://observatory-api.mdn.mozilla.net/api/v2/scan",{method:"POST",timeoutMs,headers:{"Accept":"application/json","Content-Type":"application/json"},body:JSON.stringify({host,rescan:false})});
  if(![200,201].includes(response.status))return publicResult("mozilla_observatory",statusForHttp(response.status),`Mozilla Observatory returned HTTP ${response.status}`);

@@ -101,9 +101,7 @@ test("required-tool resolver identifies an IP investigation", () => {
     },
   ]);
 
-  assert.deepEqual(result.requiredTools, [
-    "virustotal_ip_lookup",
-  ]);
+  assert.ok(result.requiredTools.includes("virustotal_ip_lookup"));
   assert.deepEqual(
     result.requiredToolArguments.virustotal_ip_lookup,
     { ip: "185.220.101.34" }
@@ -242,7 +240,7 @@ test("controller recovery prevents generic end_turn from succeeding", async () =
   assert.equal(result.stopReason, "end_turn");
 });
 
-test("Claude billing failure fails over to Groq using the same state", async () => {
+test("Claude invalid-key authentication failure fails over to Groq using the same state", async () => {
   let toolCalls = 0;
 
   const registry = new ToolRegistry();
@@ -289,10 +287,10 @@ test("Claude billing failure fails over to Groq using the same state", async () 
     models: { balanced: "claude-3-5-sonnet-latest" },
     async callWithTools() {
       throw Object.assign(
-        new Error("credit balance too low"),
+        new Error("API key is invalid"),
         {
-          status: 402,
-          category: "billing",
+          status: 401,
+          category: "authentication",
         }
       );
     },
@@ -373,6 +371,111 @@ test("Claude billing failure fails over to Groq using the same state", async () 
     "virustotal_ip_lookup",
   ]);
   assert.equal(toolCalls, 1);
+});
+
+test("partial required-provider availability returns a scoped investigation instead of failing", async () => {
+  const requiredTools = [
+    "virustotal_ip_lookup",
+    "abuseipdb_ip_lookup",
+    "shodan_ip_lookup",
+    "ipinfo_ip_lookup",
+    "censys_ip_lookup",
+    "viewdns_lookup",
+  ];
+  const availableTools = requiredTools.slice(0, 3);
+  const orchestrator = new AgentOrchestrator({
+    auditLogger: logger(),
+    requiredToolResolver: () => ({
+      requiredTools,
+      targets: [{ type: "ipv4", value: "197.210.29.24", valid: true }],
+      investigationType: "ipv4",
+      requiredToolArguments: {},
+    }),
+    agentLoop: {
+      async run({ sharedState }) {
+        sharedState.attemptedRequiredTools.push(...availableTools);
+        sharedState.completedRequiredTools.push(...availableTools);
+        sharedState.rawToolEvidence.push({
+          ok: true,
+          toolName: "virustotal_ip_lookup",
+          output: { status: "success", findings: { malicious: 0, suspicious: 0 } },
+        });
+        return {
+          reply: "Partial provider coverage; available evidence was assessed.",
+          provider: "Groq",
+          model: "openai/gpt-oss-120b",
+          stopReason: "end_turn",
+          iterations: 1,
+          toolsUsed: availableTools,
+        };
+      },
+    },
+    agentProviders: [{
+      name: "Groq",
+      models: { balanced: "openai/gpt-oss-120b" },
+      async callWithTools() { throw new Error("The mocked loop owns provider execution"); },
+    }],
+  });
+
+  const result = await orchestrator.run({
+    messages: [{ role: "user", content: "Investigate 197.210.29.24" }],
+    systemPrompt: "Investigate the current target.",
+    requestId: "partial-provider-test",
+  });
+
+  assert.equal(result.provider, "Groq");
+  assert.equal(result.investigation.target, "197.210.29.24");
+  assert.equal(result.investigation.risk.environmentalRisk, "unknown");
+  assert.deepEqual(result.completedRequiredTools, availableTools);
+  assert.deepEqual(result.missingRequiredTools, requiredTools.slice(3));
+  assert.ok(result.investigation.limitations.some((line) => line.includes("not attempted")));
+});
+
+test("all LLM providers may fail after collection and still return deterministic investigation evidence", async () => {
+  const tools = ["virustotal_ip_lookup", "abuseipdb_ip_lookup"];
+  let evidenceRecorded = false;
+  const orchestrator = new AgentOrchestrator({
+    auditLogger: logger(),
+    requiredToolResolver: () => ({
+      requiredTools: tools,
+      targets: [{ type: "ipv4", value: "94.240.240.229", valid: true }],
+      investigationType: "ipv4",
+      requiredToolArguments: {},
+    }),
+    agentLoop: {
+      async run({ sharedState }) {
+        if (!evidenceRecorded) {
+          sharedState.attemptedRequiredTools.push(...tools);
+          sharedState.completedRequiredTools.push("virustotal_ip_lookup");
+          sharedState.rawToolEvidence.push({
+            ok: true,
+            toolName: "virustotal_ip_lookup",
+            output: { status: "success", findings: { malicious: 3, suspicious: 0 } },
+          });
+          evidenceRecorded = true;
+        }
+        throw Object.assign(new Error("Mock LLM authentication failure"), { status: 401, category: "authentication" });
+      },
+    },
+    agentProviders: ["Claude", "Groq"].map((name) => ({
+      name,
+      models: { balanced: name === "Groq" ? "openai/gpt-oss-120b" : "claude-test" },
+      async callWithTools() { throw new Error("AgentLoop mock should handle this call"); },
+    })),
+  });
+
+  const result = await orchestrator.run({
+    messages: [{ role: "user", content: "Investigate 94.240.240.229" }],
+    systemPrompt: "Investigate the current target.",
+    requestId: "llm-fallback-test",
+  });
+
+  assert.equal(result.reasoningStatus, "fallback");
+  assert.equal(result.investigation.target, "94.240.240.229");
+  assert.equal(result.investigation.risk.environmentalRisk, "unknown");
+  assert.equal(result.rawToolEvidence.length, 1);
+  assert.match(result.reply, /AI reasoning was unavailable/);
+  assert.equal(result.metadata.aiAnalysis, "unavailable");
 });
 
 test("ToolValidator rejects invalid IPv4 values", () => {
@@ -480,4 +583,35 @@ test("unknown tools are denied and never executed", async () => {
       category: "agent_iteration_limit",
     }
   );
+});
+
+test("model tool calls for a previous target are denied and do not satisfy the current provider requirement", async () => {
+  let providerCalls = 0;
+  const { loop } = buildLoop(async () => {
+    providerCalls += 1;
+    return { ok: true, findings: { malicious: 0, suspicious: 0 } };
+  });
+  const state = {
+    requiredTools: ["virustotal_ip_lookup"],
+    requiredToolArguments: { virustotal_ip_lookup: { ip: "197.210.29.24" } },
+    attemptedRequiredTools: [],
+    completedRequiredTools: [],
+    rawToolEvidence: [],
+    toolResults: [],
+    target: { type: "ipv4", value: "197.210.29.24" },
+    startedAt: Date.now(),
+  };
+  const result = await loop._executeTool({
+    state,
+    toolName: "virustotal_ip_lookup",
+    input: { ip: "185.220.101.34" },
+    toolCallId: "old-target-call",
+    requestId: "investigation-current",
+    userContext: {},
+    iteration: 0,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(state.attemptedRequiredTools, []);
+  assert.equal(state.rawToolEvidence.length, 0, "a rejected model proposal is not provider evidence");
 });

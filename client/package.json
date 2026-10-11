@@ -7,9 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
+    "test": "node --test --test-concurrency=1 tests/*.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.109.0",
     "lucide-react": "^1.43.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

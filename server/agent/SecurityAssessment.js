@@ -273,7 +273,7 @@ const CERTAINTY_PATTERNS = [
   },
   {
     pattern:
-      /\badd\s+an?\s+(?:indicator\s+of\s+compromise|IOC)\s+for\s+this\s+IP\b[^.]*\.?/gi,
+      /\badd\s+an?\s+indicator\s+of\s+compromise\b[^.]*\bfor\s+this\s+IP\b[^.]*\.?/gi,
     replacement:
       "consider adding an indicator for this IP only after malicious activity is corroborated in your environment",
   },
@@ -1628,6 +1628,18 @@ function deriveFinalInvestigationAssessment(investigation) {
   }
 
   const meaningfulCoverage = `${meaningfulProviders.size}/${consultedSources.length}`;
+  const normalizedCoverage = investigation?.coverage && typeof investigation.coverage === "object" ? investigation.coverage : {};
+  const successfulProviderCount = Number.isFinite(Number(normalizedCoverage.successful))
+    ? Number(normalizedCoverage.successful)
+    : sources.filter((source) => ["success", "partial", "not_found", "no_match", "empty"].includes(String(source?.status || "").toLowerCase())).length;
+  const noMatchProviderCount = Number.isFinite(Number(normalizedCoverage.noMatch))
+    ? Number(normalizedCoverage.noMatch)
+    : sources.filter((source) => source?.findingType === "no_match" || (["success", "partial"].includes(String(source?.status || "").toLowerCase()) && source?.quality?.meaningful === false)).length;
+  const failedProviderCount = Number.isFinite(Number(normalizedCoverage.failed))
+    ? Number(normalizedCoverage.failed)
+    : sources.filter((source) => !["success", "partial", "not_found", "no_match", "empty", "skipped", "not_required"].includes(String(source?.status || "").toLowerCase())).length;
+  const unavailableProviderCount = Number(normalizedCoverage.unavailable) || 0;
+  const contextualProviderCount = Number(normalizedCoverage.contextual) || 0;
   const riskCoverage = String(
     investigation?.risk?.evidenceCoverage ??
     investigation?.risk?.evidence_coverage ??
@@ -1665,6 +1677,11 @@ function deriveFinalInvestigationAssessment(investigation) {
     consultedSources,
     consultedSourceCount: consultedSources.length,
     meaningfulCoverage,
+    successfulProviderCount,
+    noMatchProviderCount,
+    failedProviderCount,
+    unavailableProviderCount,
+    contextualProviderCount,
     internalTelemetryExists,
     externalThreat,
     environmentalRisk,
@@ -1782,13 +1799,27 @@ function renderInvestigationReport(investigation) {
   lines.push(`- Source availability: ${assessment.sourceAvailability}`);
   lines.push(`- Meaningful coverage: ${assessment.meaningfulCoverage}`);
   lines.push(`- Consulted sources: ${assessment.consultedSourceCount}`);
+  lines.push(`- Successful provider calls: ${assessment.successfulProviderCount}; meaningful evidence sources: ${assessment.meaningfulSources.length}; no-match: ${assessment.noMatchProviderCount}; failed/unavailable: ${assessment.failedProviderCount}`);
+  lines.push(`- Contextual sources: ${assessment.contextualProviderCount}; unavailable/authentication/rate-limit/time-out providers: ${assessment.unavailableProviderCount}`);
 
   lines.push("### Confidence");
   lines.push(`- External intelligence confidence: ${assessment.externalIntelligenceConfidence}`);
+  lines.push(`- Current-status confidence: ${investigation.confidence?.currentStatusConfidenceScore === null || investigation.confidence?.currentStatusConfidenceScore === undefined ? "unknown" : `${investigation.confidence.currentStatusConfidenceScore}% — ${investigation.confidence.currentStatusConfidenceLevel || "unknown"}`}`);
   lines.push(`- Environmental assessment confidence: ${assessment.environmentalAssessmentConfidence}`);
   lines.push(`- Overall investigation confidence: ${assessment.overallConfidenceText}`);
   lines.push(`- Confidence score: ${assessment.confidenceScore === null ? "unknown" : `${assessment.confidenceScore}%`} — ${assessment.confidenceLevel}`);
+  lines.push("- Score semantics: external risk is a bounded heuristic for external threat severity, not a probability. Confidence is a bounded evidence-quality heuristic, not a statistical probability; current-status confidence reflects evidence freshness and independent reputation corroboration, not live activity. Environmental impact remains unknown without internal telemetry.");
   lines.push(`- ${assessment.meaningfulSources.length} meaningful source result(s) across ${assessment.meaningfulProviderCount} provider(s).`);
+
+  if (investigation.curator) {
+    lines.push("### Lakewest AI Investigation Narrative — Deterministic Evidence Summary");
+    lines.push(`- **What matters:** ${investigation.curator.whatMatters}`);
+    lines.push(`- **Important context:** ${investigation.curator.importantContext}`);
+    lines.push(`- **What remains unknown:** ${investigation.curator.whatWeDoNotKnow}`);
+    lines.push(`- **Recommended next step:** ${investigation.curator.recommendedNextStep}`);
+    if (investigation.curator.freshnessNote) lines.push(`- **Freshness:** ${investigation.curator.freshnessNote}`);
+    lines.push(`- **Confidence:** Evidence ${investigation.curator.confidence.evidence}; current status ${investigation.curator.confidence.currentStatus}; environmental impact ${investigation.curator.confidence.environmentalImpact}.`);
+  }
 
   lines.push("### MITRE ATT&CK");
   if (Array.isArray(investigation.mitre) && investigation.mitre.length) for (const item of investigation.mitre) lines.push(`- ${item.techniqueId || "Potential mapping"}: ${item.techniqueName || ""} — ${item.rationale || ""}`);
@@ -1838,7 +1869,10 @@ function applySecurityAssessment(reply, context = {}) {
 
   if (!reply || typeof reply !== "string") return reply;
   const parsed = parseStructuredReply(reply);
-  if (parsed && validateStructuredReply(parsed)) {
+  if (parsed) {
+    // Invalid structured content still needs the deterministic sanitizer.
+    // Validation is reported separately; falling back to regex-only handling
+    // can leave unsafe instructions intact and misclassify observed CIDRs.
     const normalized = normalizeStructuredSecurityAssessment(parsed);
     const rendered = renderStructuredReply(normalized);
     return applyRegexSweep(rendered, context);

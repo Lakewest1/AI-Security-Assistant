@@ -11,6 +11,7 @@ const { buildInvestigationFromEvidence } = require("./Investigation");
 const { DomainInvestigation } = require("./DomainInvestigation");
 const { buildSecurityReasoning } = require("./SecurityReasoning");
 const SecurityReportGenerator = require("../reports/SecurityReportGenerator");
+const crypto = require("crypto");
 function classifyProviderError(error) {
   const category = String(error?.category || "").toLowerCase();
   if (category) return category;
@@ -68,6 +69,10 @@ class AgentOrchestrator {
       : [];
     const requirement = this.requiredToolResolver(baseConversation);
     const now = Date.now();
+    const currentTarget = requirement.targets?.[0] || null;
+    const scopedSystemPrompt = currentTarget
+      ? `${systemPrompt || ""}\n\nCURRENT INVESTIGATION SCOPE (authoritative):\nTarget type: ${currentTarget.type}\nTarget: ${currentTarget.value}\nUse only provider evidence collected for this request and this target. Earlier conversation may contain previous targets or findings; do not reuse them as evidence for the current investigation.`
+      : systemPrompt;
 
     const sharedState = {
       conversation: baseConversation,
@@ -82,6 +87,7 @@ class AgentOrchestrator {
       requiredTools: requirement.requiredTools || [],
       investigationType: requirement.investigationType || requirement.targets?.[0]?.type || null,
       target: requirement.targets?.[0] || null,
+      investigationId: crypto.randomUUID(),
       requiredCapabilities: requirement.requiredCapabilities || [],
       requiredToolArguments: requirement.requiredToolArguments || {},
       completedRequiredTools: [],
@@ -105,12 +111,21 @@ class AgentOrchestrator {
     sharedState.investigation = buildInvestigationFromEvidence({
       target: requirement.targets?.[0]?.value || null,
       targetType: requirement.targets?.[0]?.type === "ipv4" ? "ip" : (requirement.targets?.[0]?.type || "ip"),
+      investigationId: sharedState.investigationId,
       rawToolEvidence: [],
       startedAt: new Date(sharedState.startedAt).toISOString(),
       completed: false,
     });
 
-    this._emit("agent_started", { requestId, requiredTools: sharedState.requiredTools, targets: requirement.targets || [], investigationType: sharedState.investigationType, requiredCapabilities: sharedState.requiredCapabilities });
+    this._emit("investigation_initialized", {
+      requestId,
+      investigationId: sharedState.investigationId,
+      normalizedTarget: sharedState.investigation.target,
+      targetType: sharedState.investigation.targetType,
+    });
+
+    this._emit("investigation_started", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType });
+    this._emit("agent_started", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, requiredTools: sharedState.requiredTools, targets: requirement.targets || [], investigationType: sharedState.investigationType, requiredCapabilities: sharedState.requiredCapabilities });
     if (sharedState.target) this._emit("agent_target_normalized", { requestId, target: sharedState.target, investigationType: sharedState.investigationType });
     this._emit("agent_tools_selected", { requestId, tools: sharedState.requiredTools, investigationType: sharedState.investigationType });
     for (const tool of sharedState.requiredTools) this._emit("agent_tool_expected", { requestId, tool });
@@ -128,32 +143,43 @@ class AgentOrchestrator {
 
       const attempt = { provider: provider.name, model, providerAttempt: index + 1, startedAt: Date.now(), ok: false };
       sharedState.providerAttempts.push(attempt);
-      this._emit("agent_provider_attempt", { requestId, provider: provider.name, model, providerAttempt: attempt.providerAttempt });
+      this._emit("agent_provider_attempt", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, provider: provider.name, model, providerAttempt: attempt.providerAttempt });
 
       try {
+        this._emit("llm_reasoning_started", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, provider: provider.name, model });
         const result = await this.agentLoop.run({
           sharedState,
-          systemPrompt,
+          systemPrompt: scopedSystemPrompt,
           agentProvider: provider,
           providerOptions: { model, maxTokens: this.agentProviderOptions.maxTokens },
           requestId,
           userContext,
         });
 
-        if (sharedState.requiredTools.length && !sharedState.requiredTools.every((t) => sharedState.attemptedRequiredTools.includes(t))) {
-          throw Object.assign(new Error("Agent returned without completing required tools"), { status: 502, category: "required_tools_incomplete" });
-        }
-
         attempt.ok = true;
         attempt.durationMs = Date.now() - attempt.startedAt;
+        this._emit("llm_reasoning_completed", { requestId, investigationId: sharedState.investigationId, target: requirement.targets?.[0]?.value || null, targetType: sharedState.investigationType, provider: provider.name, model, durationMs: attempt.durationMs });
         sharedState.investigation = buildInvestigationFromEvidence({
           target: requirement.targets?.[0]?.value || null,
           targetType: requirement.targets?.[0]?.type === "ipv4" ? "ip" : (requirement.targets?.[0]?.type || "ip"),
+          investigationId: sharedState.investigationId,
           rawToolEvidence: sharedState.rawToolEvidence,
           expectedTools: sharedState.requiredTools,
           startedAt: new Date(sharedState.startedAt).toISOString(),
           completed: true,
         });
+        this._emit("provider_execution_complete", {
+          requestId,
+          investigationId: sharedState.investigationId,
+          normalizedTarget: sharedState.investigation.target,
+          attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
+          completedRequiredTools: [...sharedState.completedRequiredTools],
+          missingRequiredTools: sharedState.requiredTools.filter((tool) => !sharedState.attemptedRequiredTools.includes(tool)),
+        });
+        this._emit("evidence_normalized", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, evidenceCount: sharedState.investigation.sources.length });
+        this._emit("coverage_calculated", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, coverage: sharedState.investigation.coverage });
+        this._emit("correlation_calculated", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, correlationCount: sharedState.investigation.correlations.length });
+        this._emit("risk_calculated", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, externalThreat: sharedState.investigation.risk.externalThreat, environmentalRisk: sharedState.investigation.risk.environmentalRisk, score: sharedState.investigation.risk.score, confidence: sharedState.investigation.confidence.level });
         if (sharedState.investigationType === "domain") {
           const domainData = this.domainInvestigation.normalize({
             domain: requirement.targets?.[0]?.value,
@@ -162,12 +188,17 @@ class AgentOrchestrator {
           });
           sharedState.investigation = { ...sharedState.investigation, ...domainData, targetType: "domain", target: requirement.targets?.[0]?.value || null };
           sharedState.reasoning = buildSecurityReasoning({ investigation: sharedState.investigation, rawToolEvidence: sharedState.rawToolEvidence });
-          sharedState.report = this.reportGenerator.generateDomainInvestigationReport(sharedState.investigation);
+          // Reports are generated by the existing /api/security-report PDF
+          // route. Avoid invoking a domain-report method that is not part of
+          // that generator's public interface.
         }
         sharedState.terminationReason = "completed";
-        this._emit("agent_provider_succeeded", { requestId, provider: provider.name, durationMs: attempt.durationMs });
+        this._emit("agent_provider_succeeded", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, provider: provider.name, durationMs: attempt.durationMs });
         this._emit("agent_finished", {
           requestId,
+          investigationId: sharedState.investigationId,
+          target: sharedState.investigation.target,
+          targetType: sharedState.investigation.targetType,
           provider: result.provider,
           model: result.model,
           iterations: result.iterations,
@@ -176,6 +207,7 @@ class AgentOrchestrator {
           completedRequiredTools: sharedState.completedRequiredTools,
           stopReason: result.stopReason,
         });
+        this._emit("investigation_completed", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, status: sharedState.investigation.status, coverage: sharedState.investigation.coverage });
 
         return {
           ...result,
@@ -185,6 +217,7 @@ class AgentOrchestrator {
           attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
           missingRequiredTools: sharedState.requiredTools.filter((tool) => !sharedState.attemptedRequiredTools.includes(tool)),
           investigation: sharedState.investigation,
+          reasoningStatus: result.reasoningStatus || "completed",
           reasoning: sharedState.reasoning || null,
           report: sharedState.report || null,
           executedToolCalls: [...sharedState.executedToolCalls],
@@ -196,6 +229,9 @@ class AgentOrchestrator {
             model: result.model,
             iterations: result.iterations,
             toolsUsed: [...sharedState.toolsUsed],
+            coverage: sharedState.investigation.coverage || null,
+            providerStatus: sharedState.investigation.sources || [],
+            reasoningStatus: result.reasoningStatus || "completed",
             requiredTools: [...sharedState.requiredTools],
             completedRequiredTools: [...sharedState.completedRequiredTools],
             stopReason: result.stopReason || "end_turn",
@@ -206,17 +242,19 @@ class AgentOrchestrator {
         attempt.ok = false;
         attempt.durationMs = Date.now() - attempt.startedAt;
         attempt.category = classifyProviderError(error);
-        attempt.errorMessage = error.message;
         lastError = error;
         // Exactly one provider-failure event: orchestration boundary only.
         this._emit("agent_provider_failed", {
           requestId,
+          investigationId: sharedState.investigationId,
+          target: sharedState.investigation.target,
+          targetType: sharedState.investigation.targetType,
           provider: provider.name,
           model,
           providerAttempt: attempt.providerAttempt,
           category: classifyProviderError(error),
-          errorMessage: error.message,
         });
+        this._emit("llm_reasoning_failed", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, provider: provider.name, model, category: attempt.category });
       }
     }
 
@@ -224,15 +262,11 @@ class AgentOrchestrator {
     // collection. If every mandatory security tool was attempted, preserve
     // the investigation and return a deterministic degraded result instead
     // of converting usable evidence into an "agent failed" response.
-    if (
-      sharedState.requiredTools.length > 0 &&
-      sharedState.requiredTools.every((tool) =>
-        sharedState.attemptedRequiredTools.includes(tool)
-      )
-    ) {
+    if (sharedState.rawToolEvidence.length > 0) {
       sharedState.investigation = buildInvestigationFromEvidence({
         target: requirement.targets?.[0]?.value || null,
         targetType: requirement.targets?.[0]?.type === "ipv4" ? "ip" : (requirement.targets?.[0]?.type || "ip"),
+        investigationId: sharedState.investigationId,
         rawToolEvidence: sharedState.rawToolEvidence,
         expectedTools: sharedState.requiredTools,
         startedAt: new Date(sharedState.startedAt).toISOString(),
@@ -242,7 +276,9 @@ class AgentOrchestrator {
 
       this._emit("agent_completed_degraded", {
         requestId,
-        reason: "ai_provider_exhausted_after_required_evidence",
+        investigationId: sharedState.investigationId,
+        normalizedTarget: sharedState.investigation.target,
+        reason: "ai_provider_exhausted_after_evidence_collection",
         aiProviderFailures: sharedState.providerAttempts.map((attempt) => ({
           provider: attempt.provider,
           model: attempt.model,
@@ -251,9 +287,10 @@ class AgentOrchestrator {
         requiredTools: sharedState.requiredTools,
         attemptedRequiredTools: sharedState.attemptedRequiredTools,
       });
+      this._emit("investigation_completed", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, status: sharedState.investigation.status, reasoningStatus: "fallback", coverage: sharedState.investigation.coverage });
 
       return {
-        reply: null,
+        reply: "AI reasoning was unavailable. Deterministic evidence collection completed; review the structured investigation, source statuses, coverage, assessment, and limitations in the response metadata.",
         content: [],
         provider: null,
         model: null,
@@ -266,6 +303,7 @@ class AgentOrchestrator {
         attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
         missingRequiredTools: sharedState.requiredTools.filter((tool) => !sharedState.attemptedRequiredTools.includes(tool)),
         investigation: sharedState.investigation,
+        reasoningStatus: "fallback",
         reasoning: sharedState.reasoning || null,
         report: sharedState.report || null,
         executedToolCalls: [...sharedState.executedToolCalls],
@@ -282,6 +320,9 @@ class AgentOrchestrator {
           attemptedRequiredTools: [...sharedState.attemptedRequiredTools],
           stopReason: "ai_provider_exhausted",
           aiAnalysis: "unavailable",
+          reasoningStatus: "fallback",
+          coverage: sharedState.investigation.coverage || null,
+          providerStatus: sharedState.investigation.sources || [],
           toolExpectedButNotCalled: sharedState.toolExpectedButNotCalled,
           providerFailures: sharedState.providerAttempts.map((attempt) => ({
             provider: attempt.provider,
@@ -290,9 +331,10 @@ class AgentOrchestrator {
           })),
         },
       };
-    }
+      }
 
     sharedState.terminationReason = "all_providers_failed";
+    this._emit("investigation_failed", { requestId, investigationId: sharedState.investigationId, target: sharedState.investigation.target, targetType: sharedState.investigation.targetType, reason: "no_evidence_and_all_llm_providers_failed" });
     this._emit("agent_terminated", { requestId, reason: "all_providers_failed", toolsUsed: sharedState.toolsUsed, requiredTools: sharedState.requiredTools, completedRequiredTools: sharedState.completedRequiredTools });
 
     throw Object.assign(new Error("All agent providers failed"), {

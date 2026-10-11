@@ -51,7 +51,7 @@ class GroqProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {
@@ -116,7 +116,7 @@ class DeepSeekProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {
@@ -197,7 +197,7 @@ class GeminiProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {
@@ -267,7 +267,7 @@ class OpenAIProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {
@@ -340,7 +340,7 @@ class AnthropicProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {
@@ -408,7 +408,7 @@ class OpenRouterProvider extends BaseProvider {
         requestId
       );
 
-      const text = await response.text();
+      const text = await this.readResponseText(response);
       const data = this.safeParseJson(text);
 
       if (!response.ok) {

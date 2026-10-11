@@ -6,6 +6,7 @@
  */
 
 const ProviderErrorClassifier = require('./ProviderErrorClassifier');
+const { readResponseBody, limitResponseStream, createResponseTimeout, finishResponseTimeout } = require('./tools/external/provider-utils');
 
 class BaseProvider {
   constructor(config) {
@@ -15,6 +16,22 @@ class BaseProvider {
     this.type = config.type;
     this.models = config.models || {};
     this.isFallbackOnly = config.isFallbackOnly || false;
+    this.maxResponseBytes = config.maxResponseBytes;
+  }
+
+  async readResponseText(response) {
+    if (!response?.body) {
+      finishResponseTimeout(response);
+      return '';
+    }
+    return readResponseBody(response, {
+      parse: 'text',
+      maxBytes: this.maxResponseBytes,
+    });
+  }
+
+  limitResponseStream(response) {
+    return limitResponseStream(response, { maxBytes: this.maxResponseBytes });
   }
 
   /**
@@ -32,7 +49,8 @@ class BaseProvider {
    */
   async fetchWithTimeout(url, options, timeoutMs, requestId) {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const effectiveTimeoutMs = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 10000;
+    const timeout = createResponseTimeout(controller, effectiveTimeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -40,18 +58,18 @@ class BaseProvider {
         signal: controller.signal,
       });
 
-      clearTimeout(timeoutId);
+      timeout.bind(response);
       return response;
 
     } catch (error) {
-      clearTimeout(timeoutId);
+      timeout.finish();
 
-      if (error.name === 'AbortError') {
-        const timeoutError = new Error(
-          `Request timed out after ${timeoutMs}ms`
-        );
-        timeoutError.code = 'TIMEOUT';
-        timeoutError.status = 408;
+      if (error.name === 'AbortError' || controller.signal.aborted) {
+        const timeoutError = Object.assign(new Error('Provider request timed out'), {
+          code: 'TIMEOUT',
+          status: 408,
+          category: 'tool_timeout',
+        });
         throw this.normalizeError(timeoutError);
       }
 
@@ -90,6 +108,7 @@ class BaseProvider {
 
     // Add provider info
     normalized.provider = this.name;
+    if (error.category) normalized.category = error.category;
     
     // Preserve original error for logging
     normalized.originalError = error;

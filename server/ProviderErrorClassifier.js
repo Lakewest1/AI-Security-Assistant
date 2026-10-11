@@ -38,6 +38,17 @@ class ProviderErrorClassifier {
       };
     }
 
+    if (error.category === 'response_too_large') {
+      return {
+        shouldFallback: false,
+        category: 'response_too_large',
+        retrySameProvider: false,
+        stopFallbackChain: true,
+        status: 502,
+        reason: 'Provider response exceeded the configured size limit'
+      };
+    }
+
     const status = error.status || error.statusCode || 500;
     const message = (error.message || '').toLowerCase();
     const errorCode = error.code || '';

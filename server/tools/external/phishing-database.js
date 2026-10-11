@@ -8,6 +8,66 @@
 
 const DEFAULT_FEED_URL =
   'https://raw.githubusercontent.com/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt';
+const MAX_FEED_BYTES = 5 * 1024 * 1024;
+
+function isApprovedFeedUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      url.hostname === 'raw.githubusercontent.com' &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      url.pathname === '/Phishing-Database/Phishing.Database/master/phishing-domains-ACTIVE.txt' &&
+      !url.search &&
+      !url.hash;
+  } catch (_) {
+    return false;
+  }
+}
+
+async function readTextLimited(response, maxBytes) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    throw new Error('Feed response body is unavailable');
+  }
+
+  const contentLength = Number(response.headers?.get?.('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    throw new Error('Feed response exceeded the size limit');
+  }
+
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => {});
+        throw new Error('Feed response exceeded the size limit');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch (_) {
+    throw new Error('Feed response was not valid UTF-8 text');
+  }
+}
 
 function normalizeDomain(input) {
   const raw = String(input?.domain || input?.url || input || '').trim();
@@ -50,9 +110,9 @@ function parseFeed(text) {
 }
 
 function createPhishingDatabaseTool({
-  feedUrl = DEFAULT_FEED_URL,
   timeoutMs = 10000,
   refreshIntervalMs = 6 * 60 * 60 * 1000,
+  fetchImpl = globalThis.fetch,
 } = {}) {
   let cache = null;
   let cacheLoadedAt = 0;
@@ -66,8 +126,16 @@ function createPhishingDatabaseTool({
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
-        const response = await fetch(feedUrl, {
+        if (!isApprovedFeedUrl(DEFAULT_FEED_URL)) {
+          throw new Error('Feed destination is not approved');
+        }
+        if (typeof fetchImpl !== 'function') {
+          throw new Error('Feed fetch is unavailable');
+        }
+
+        const response = await fetchImpl(DEFAULT_FEED_URL, {
           method: 'GET',
+          redirect: 'error',
           headers: {
             Accept: 'text/plain',
             'User-Agent': 'Lakewest-AI-Security-Assistant/1.0',
@@ -75,11 +143,11 @@ function createPhishingDatabaseTool({
           signal: controller.signal,
         });
 
-        if (!response.ok) {
+        if (response.status !== 200) {
           throw new Error(`Feed returned HTTP ${response.status}`);
         }
 
-        const body = await response.text();
+        const body = await readTextLimited(response, MAX_FEED_BYTES);
         const domains = parseFeed(body);
         if (!domains.size) {
           throw new Error('Feed returned no usable domain entries');
@@ -97,7 +165,15 @@ function createPhishingDatabaseTool({
         const message =
           error?.name === 'AbortError'
             ? `Feed download timed out after ${timeoutMs}ms`
-            : error?.message || 'Feed download failed';
+            : error?.message === 'Feed response exceeded the size limit'
+              ? error.message
+              : error?.message === 'Feed response was not valid UTF-8 text'
+                ? error.message
+                : error?.message === 'Feed returned no usable domain entries'
+                  ? error.message
+                  : /^Feed returned HTTP \d{3}$/.test(error?.message || '')
+                    ? error.message
+                    : 'Feed download failed';
 
         if (cache && cache.size) {
           console.warn(
@@ -226,6 +302,8 @@ function createPhishingDatabaseTool({
 
 module.exports = {
   DEFAULT_FEED_URL,
+  MAX_FEED_BYTES,
+  isApprovedFeedUrl,
   normalizeDomain,
   parseFeed,
   createPhishingDatabaseTool,

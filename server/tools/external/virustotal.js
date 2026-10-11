@@ -5,6 +5,7 @@
  * This adapter intentionally normalizes only documented VirusTotal IP fields.
  */
 const net = require("net");
+const { readResponseBody } = require("./provider-utils");
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.VIRUSTOTAL_TIMEOUT_MS) || 8000;
 
@@ -12,6 +13,10 @@ function isValidIP(value) {
   if (typeof value !== "string") return false;
   const v = value.trim();
   return v.length > 0 && v.length <= 45 && net.isIP(v) !== 0;
+}
+
+function toVirusTotalUrlId(url) {
+  return Buffer.from(String(url), "utf8").toString("base64url");
 }
 
 function publicError(status, message) {
@@ -39,12 +44,7 @@ async function request(url, apiKey, timeoutMs) {
       signal: controller.signal,
     });
 
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = null;
-    }
+    const body = await readResponseBody(response);
     return { response, body };
   } catch (error) {
     if (error?.name === "AbortError") {
@@ -148,7 +148,7 @@ function createVirusTotalTool({ apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
 
         return publicError("error", `VirusTotal returned HTTP ${statusCode}`);
       } catch (error) {
-        if (error?.category === "tool_timeout") throw error;
+        if (error?.category === "tool_timeout" || error?.category === "response_too_large" || error?.category === "response_body_unavailable") throw error;
         const wrapped = new Error("VirusTotal network request failed");
         wrapped.category = "network_error";
         throw wrapped;
@@ -160,4 +160,5 @@ function createVirusTotalTool({ apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
 module.exports = {
   createVirusTotalTool,
   isValidIP,
+  toVirusTotalUrlId,
 };

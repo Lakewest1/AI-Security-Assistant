@@ -6,7 +6,7 @@ const ChatHeader = ({ darkMode, setDarkMode, clearChat }) => {
       <div className="header-left">
         <div className="logo">🛡️</div>
         <div>
-          <h1>AI Security Assistant</h1>
+          <h1>Lakewest AI</h1>
           <p>Cloud Security • AWS • Azure • Kubernetes</p>
         </div>
       </div>

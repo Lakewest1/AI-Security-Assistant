@@ -4,10 +4,14 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "start:agent": "node server/agent-server.js",
+    "test": "node --test test/*.test.js server/tests/*.test.js"
   },
   "dependencies": {
     "@mistralai/mistralai": "^2.6.4",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@typesafe-ai/sdk": "0.6.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
@@ -19,6 +23,6 @@
     "nodemon": "^3.1.9"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   }
 }

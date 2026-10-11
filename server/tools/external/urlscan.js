@@ -14,7 +14,11 @@ function validTarget(input) {
 function queryFor(input, value) {
   if (input.ip) return `ip:${value}`;
   if (input.domain) return `domain:${value}`;
-  try { return `domain:${new URL(value).hostname}`; } catch { return value; }
+  // Search the original submitted URL, not every scan associated with its
+  // hostname. URLScan supports exact URL keyword fields in its search API.
+  const reserved = new Set(["+", "-", "=", "&", "|", ">", "<", "!", "(", ")", "{", "}", "[", "]", "^", '"', "~", "*", "?", ":", "\\", "/"]);
+  const escaped = [...value].map((character) => reserved.has(character) ? `\\${character}` : character).join("");
+  return `task.url.keyword:${escaped} OR canonical.task.url:${escaped}`;
 }
 function normalize(body, target) {
   const results = Array.isArray(body?.results) ? body.results : [];
@@ -53,11 +57,17 @@ function createURLScanTool({ apiKey, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
         const {response,payload}=await fetchWithRetry(url,{timeoutMs,headers:{Accept:"application/json","API-Key":apiKey}});
         if (response.status !== 200) return publicResult("urlscan",statusForHttp(response.status),`URLScan returned HTTP ${response.status}`);
         if (!payload || !Array.isArray(payload.results)) return publicResult("urlscan","error","URLScan returned an unexpected response shape");
-        return successResult("urlscan",normalize(payload,target));
+        const findings = normalize(payload,target);
+        return {
+          ...successResult("urlscan",findings),
+          ...(findings.totalResults === 0
+            ? { message: "No historical URLScan result was returned for this URL; no safety conclusion can be drawn from this source." }
+            : {}),
+        };
       } catch(error) {
         return publicResult("urlscan",error.category==="tool_timeout"?"timeout":"unavailable",error.message);
       }
     },
   };
 }
-module.exports={createURLScanTool};
+module.exports={createURLScanTool,queryFor};

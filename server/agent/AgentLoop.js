@@ -8,6 +8,14 @@
 
 const crypto = require("crypto");
 const { buildInvestigationFromEvidence } = require("./Investigation");
+const AgentAuditLogger = require("./AgentAuditLogger");
+
+function storedToolInput(toolName, input) {
+  const copy = JSON.parse(JSON.stringify(input || {}));
+  return toolName === "hibp_lookup"
+    ? AgentAuditLogger.sanitizeLogValue(copy)
+    : copy;
+}
 
 const DEFAULT_MAX_ITERATIONS = Number(process.env.AGENT_MAX_ITERATIONS) || 8;
 const DEFAULT_AGENT_TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MS) || 45000;
@@ -107,6 +115,21 @@ function toOpenAIMessages(conversation, systemPrompt) {
   return output;
 }
 
+const MODEL_TOOL_ALIASES = new Set([
+  "virustotal_url_lookup",
+  "google_web_risk_lookup",
+  "urlhaus_lookup",
+  "phishing_database_lookup",
+  "threatfox_lookup",
+]);
+
+function getModelVisibleToolDefinitions(toolDefinitions, requiredTools = []) {
+  const required = new Set(requiredTools);
+  return (Array.isArray(toolDefinitions) ? toolDefinitions : []).filter(
+    (tool) => !required.has(tool.name) && !MODEL_TOOL_ALIASES.has(tool.name)
+  );
+}
+
 function genericInvestigationResponse(text) {
   if (!text || typeof text !== "string") return true;
   const value = text.trim();
@@ -134,6 +157,7 @@ class AgentLoop {
     maxSameToolCalls = DEFAULT_MAX_SAME_TOOL_CALLS,
     maxToolResultChars = DEFAULT_MAX_TOOL_RESULT_CHARS,
     domainInvestigation = null,
+    providerHealth = null,
   }) {
     this.toolRegistry = toolRegistry;
     this.toolPolicy = toolPolicy;
@@ -146,6 +170,7 @@ class AgentLoop {
     this.maxSameToolCalls = maxSameToolCalls;
     this.maxToolResultChars = maxToolResultChars;
     this.domainInvestigation = domainInvestigation;
+    this.providerHealth = providerHealth;
   }
 
   _emit(event, payload) {
@@ -211,9 +236,11 @@ class AgentLoop {
     const now = new Date().toISOString();
     const evidence = {
       ok: false,
+      investigationId: state.investigationId || null,
+      requestId: state.investigationId || null,
       toolName,
       callId: toolCallId,
-      input: JSON.parse(JSON.stringify(input || {})),
+      input: storedToolInput(toolName, input),
       output: null,
       error: { code, retryable: false, message },
       startedAt: now,
@@ -244,7 +271,9 @@ class AgentLoop {
     state.investigation = buildInvestigationFromEvidence({
       target,
       targetType,
+      investigationId: state.investigationId || null,
       rawToolEvidence: state.rawToolEvidence,
+      expectedTools: state.requiredTools,
       startedAt: new Date(state.startedAt || Date.now()).toISOString(),
       completed: false,
     });
@@ -253,7 +282,8 @@ class AgentLoop {
   }
 
   async _executeTool({ state, toolName, input, toolCallId, requestId, userContext, iteration, controllerExecuted = false }) {
-    this._emit("agent_tool_requested", { requestId, iteration, toolName, input, controllerExecuted });
+    const logScope = { requestId, investigationId: state.investigationId || requestId || null, target: state.target?.value || null, targetType: state.target?.type || null };
+    this._emit("agent_tool_requested", { ...logScope, iteration, toolName, controllerExecuted });
 
     const tool = this.toolRegistry.get(toolName);
     if (!tool) {
@@ -261,6 +291,30 @@ class AgentLoop {
       const failure = this._failedToolResult(toolName, toolCallId, input, "UNKNOWN_TOOL", "Tool is not registered", false);
       this._recordAttemptedFailure(state, toolName, toolCallId, input, "UNKNOWN_TOOL", "Tool is not registered");
       return failure;
+    }
+
+    if (!controllerExecuted && MODEL_TOOL_ALIASES.has(toolName)) {
+      this._emit("agent_tool_denied", { requestId, toolName, reason: "internal_provider_alias" });
+      const failure = this._failedToolResult(toolName, toolCallId, input, "NON_CANONICAL_TOOL_ALIAS", "This internal provider alias is not callable by the model", false);
+      return failure;
+    }
+
+    // Model-proposed tool calls during a planned investigation must exactly
+    // match the current request's deterministic plan. Controller-run calls
+    // (including discovered dependent IP checks) already have server-owned
+    // target validation and are allowed through.
+    if (state.requiredTools.length > 0 && !controllerExecuted) {
+      const expected = state.requiredToolArguments?.[toolName];
+      if (!expected || stableStringify(expected) !== stableStringify(input || {})) {
+        const message = "Tool call did not match the current investigation target and execution plan";
+        this._emit("agent_tool_denied", { requestId, toolName, reason: "investigation_target_mismatch" });
+        const failure = this._failedToolResult(toolName, toolCallId, input, "INVESTIGATION_TARGET_MISMATCH", message, false);
+        // This is a rejected model proposal, not a provider execution. Keep it
+        // in the tool-result/audit channel only; putting it in rawToolEvidence
+        // could overwrite the controller's valid result for the same provider
+        // when evidence is normalized by provider name.
+        return failure;
+      }
     }
 
     const validation = this.toolValidator.validate(tool, input);
@@ -322,7 +376,9 @@ class AgentLoop {
 
     const startedAt = new Date().toISOString();
     const startedMs = Date.now();
-    this._emit("agent_tool_started", { requestId, toolName, toolCallId, controllerExecuted });
+    this.providerHealth?.recordStart(toolName);
+    this._emit("provider_started", { ...logScope, provider: toolName, toolCallId });
+    this._emit("agent_tool_started", { ...logScope, toolName, toolCallId, controllerExecuted });
 
     let output = null;
     let error = null;
@@ -354,9 +410,11 @@ class AgentLoop {
     const success = Boolean(outputIndicatesSuccess);
     const evidence = {
       ok: Boolean(success),
+      investigationId: state.investigationId || null,
+      requestId: requestId || null,
       toolName,
       callId: toolCallId,
-      input: JSON.parse(JSON.stringify(input || {})),
+      input: storedToolInput(toolName, input),
       output: success ? output : null,
       error: success ? null : (error || {
         code: this._providerStatusCode(output?.status),
@@ -371,6 +429,13 @@ class AgentLoop {
     };
     this._recordEvidence(state, evidence);
 
+    const normalizedProviderStatus = success
+      ? String(output?.status || "success").toLowerCase()
+      : String(output?.status || (error?.category === "tool_timeout" ? "timeout" : error?.status === 401 || error?.status === 403 ? "unauthorized" : error?.category === "network_error" || error?.code === "UPSTREAM_ERROR" ? "unavailable" : "error")).toLowerCase();
+      const eventStatus = ["success", "partial", "not_found", "no_match", "unauthorized", "forbidden", "invalid_request", "not_configured", "timeout", "unavailable", "error", "rate_limited"].includes(normalizedProviderStatus) ? normalizedProviderStatus : "error";
+    this.providerHealth?.recordResult(toolName, eventStatus, durationMs, evidence.error?.message || output?.message || null);
+    this._emit(`provider_${eventStatus}`, { ...logScope, provider: toolName, status: eventStatus, durationMs, errorCode: evidence.error?.code || null });
+
     if (state.requiredTools.includes(toolName) && !Array.isArray(state.attemptedRequiredTools)) state.attemptedRequiredTools = [];
     if (state.requiredTools.includes(toolName) && !state.attemptedRequiredTools.includes(toolName)) {
       state.attemptedRequiredTools.push(toolName);
@@ -379,16 +444,16 @@ class AgentLoop {
     if (success) {
       state.executedToolFingerprints.add(fingerprint);
       state.toolsUsed.push(toolName);
-      state.executedToolCalls.push({ toolName, toolCallId: toolCallId, arguments: input, controllerExecuted });
+      state.executedToolCalls.push({ toolName, toolCallId: toolCallId, arguments: storedToolInput(toolName, input), controllerExecuted });
       this._emit("tool_completed", { requestId, toolName, toolCallId, durationMs, success: true });
-      this._emit("agent_tool_succeeded", { requestId, toolName, toolCallId, durationMs, controllerExecuted });
+      this._emit("agent_tool_succeeded", { ...logScope, toolName, toolCallId, durationMs, controllerExecuted });
       if (state.requiredTools.includes(toolName) && !state.completedRequiredTools.includes(toolName)) {
         state.completedRequiredTools.push(toolName);
         this._emit("agent_tool_requirement_satisfied", { requestId, tool: toolName });
       }
     } else {
       this._emit("tool_completed", { requestId, toolName, toolCallId, durationMs, success: false, errorCategory: evidence.error?.code || "TOOL_EXECUTION_FAILED" });
-      this._emit("agent_tool_failed", { requestId, toolName, toolCallId, durationMs, errorCategory: evidence.error?.code || "TOOL_EXECUTION_FAILED", errorMessage: evidence.error?.message });
+      this._emit("agent_tool_failed", { ...logScope, toolName, toolCallId, durationMs, errorCategory: evidence.error?.code || "TOOL_EXECUTION_FAILED" });
     }
 
     return {
@@ -404,10 +469,11 @@ class AgentLoop {
   }
 
   _failedToolResult(toolName, callId, input, code, message, retryable) {
-    const payload = { ok: false, tool: toolName, input, error: { code, message, retryable } };
+    const safeInput = storedToolInput(toolName, input);
+    const payload = { ok: false, tool: toolName, input: safeInput, error: { code, message, retryable } };
     return {
       ok: false,
-      evidence: { ok: false, toolName, callId, input, output: null, error: payload.error, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() },
+      evidence: { ok: false, toolName, callId, input: safeInput, output: null, error: payload.error, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() },
       toolResult: { type: "tool_result", tool_use_id: callId, is_error: true, content: JSON.stringify(payload) },
     };
   }
@@ -528,6 +594,11 @@ class AgentLoop {
 
     const toolDefinitions = this.toolRegistry.getDefinitions();
     const state = sharedState;
+    state.rawToolEvidence = Array.isArray(state.rawToolEvidence) ? state.rawToolEvidence : [];
+    state.toolResults = Array.isArray(state.toolResults) ? state.toolResults : [];
+    state.attemptedRequiredTools = Array.isArray(state.attemptedRequiredTools) ? state.attemptedRequiredTools : [];
+    state.requiredTools = Array.isArray(state.requiredTools) ? state.requiredTools : [];
+    state.requiredToolArguments = state.requiredToolArguments && typeof state.requiredToolArguments === "object" ? state.requiredToolArguments : {};
     const startedAt = state.startedAt || Date.now();
     state.deadline = state.deadline || startedAt + this.agentTimeoutMs;
     let lastProviderResult = null;
@@ -568,15 +639,13 @@ class AgentLoop {
     // Do not advertise them back to the model as optional tool choices; this
     // prevents redundant LLM tool calls and keeps mandatory collection out of
     // the model's control plane. Optional tools remain available normally.
-    const modelToolDefinitions = toolDefinitions.filter(
-      (tool) => !state.requiredTools.includes(tool.name)
-    );
+    const modelToolDefinitions = getModelVisibleToolDefinitions(toolDefinitions, state.requiredTools);
 
     while (state.iteration < this.maxIterations) {
       if (Date.now() >= state.deadline) throw Object.assign(new Error("Agent timeout reached"), { status: 504, category: "agent_timeout" });
 
       state.iteration += 1;
-      this._emit("agent_iteration", { requestId, iteration: state.iteration, toolCount: modelToolDefinitions.length, provider: agentProvider.name });
+      this._emit("agent_iteration", { requestId, investigationId: state.investigationId || requestId || null, target: state.target?.value || null, targetType: state.target?.type || null, iteration: state.iteration, toolCount: modelToolDefinitions.length, provider: agentProvider.name });
 
       const providerFormat = agentProvider.type === "anthropic" ? "anthropic" : "openai";
       const providerMessages = providerFormat === "anthropic"
@@ -585,7 +654,7 @@ class AgentLoop {
       const remainingMs = state.deadline - Date.now();
       if (remainingMs <= 0) throw Object.assign(new Error("Agent deadline exceeded"), { status: 504, category: "agent_timeout" });
 
-      this._emit("agent_provider_request", { requestId, provider: agentProvider.name, model: providerOptions.model, iteration: state.iteration, tools: modelToolDefinitions.map((t) => t.name) });
+      this._emit("agent_provider_request", { requestId, investigationId: state.investigationId || requestId || null, target: state.target?.value || null, targetType: state.target?.type || null, provider: agentProvider.name, model: providerOptions.model, iteration: state.iteration, tools: modelToolDefinitions.map((t) => t.name) });
 
       // Provider failure is deliberately NOT logged here. AgentOrchestrator is the
       // sole owner of agent_provider_failed so a single failure produces one event.
@@ -637,12 +706,20 @@ class AgentLoop {
         await this._controllerExecuteRequiredTools({ state, requestId, userContext });
 
         if (!this._requiredToolsComplete(state)) {
-          throw Object.assign(
-            new Error("Required security tools could not all be attempted"),
-            { status: 502, category: "required_tools_incomplete" }
+          const missingTools = state.requiredTools.filter(
+            (name) => !(state.attemptedRequiredTools || []).includes(name)
           );
+          this._emit("agent_required_tools_incomplete", {
+            requestId,
+            attemptedRequiredTools: [...(state.attemptedRequiredTools || [])],
+            missingRequiredTools: missingTools,
+            evidenceCount: state.rawToolEvidence.length,
+          });
         }
-        continue;
+        // Continue with the evidence gathered so far. Missing sources remain
+        // explicit in the investigation and must not turn a partial result
+        // into an API failure.
+        if (this._requiredToolsComplete(state)) continue;
       }
 
       // Required tools are complete. A generic final response is not accepted.
@@ -660,7 +737,7 @@ class AgentLoop {
           iterations: state.iteration,
           toolsUsed: [...state.toolsUsed],
           stopReason: synthesis.stopReason || "end_turn",
-          requiredToolsComplete: true,
+          requiredToolsComplete: this._requiredToolsComplete(state),
           completedRequiredTools: [...state.completedRequiredTools],
           attemptedRequiredTools: [...state.attemptedRequiredTools],
           missingRequiredTools: state.requiredTools.filter((tool) => !state.attemptedRequiredTools.includes(tool)),
@@ -681,7 +758,7 @@ class AgentLoop {
         iterations: state.iteration,
         toolsUsed: [...state.toolsUsed],
         stopReason: lastProviderResult.stopReason || "end_turn",
-        requiredToolsComplete: true,
+        requiredToolsComplete: this._requiredToolsComplete(state),
         completedRequiredTools: [...state.completedRequiredTools],
         attemptedRequiredTools: [...state.attemptedRequiredTools],
         missingRequiredTools: state.requiredTools.filter((tool) => !state.attemptedRequiredTools.includes(tool)),
@@ -700,5 +777,6 @@ AgentLoop.fingerprintToolCall = fingerprintToolCall;
 AgentLoop.toAnthropicMessages = toAnthropicMessages;
 AgentLoop.toOpenAIMessages = toOpenAIMessages;
 AgentLoop.isGenericInvestigationResponse = genericInvestigationResponse;
+AgentLoop.getModelVisibleToolDefinitions = getModelVisibleToolDefinitions;
 
 module.exports = AgentLoop;

@@ -29,10 +29,10 @@ class DeepSeekProvider extends BaseProvider {
     );
 
     if (options.stream) {
-      return response;
+      return this.limitResponseStream(response);
     }
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
     try { data = JSON.parse(text); } catch { data = null; }
 

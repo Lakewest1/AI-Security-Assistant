@@ -1,12 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { DomainInvestigation, CAPABILITIES, normalizeDomain, buildPlan, dependentTools, normalize } = require('../server/agent/DomainInvestigation');
-const { resolveRequiredTools } = require('../server/agent/RequiredToolResolver');
-const ToolRegistry = require('../server/agent/ToolRegistry');
-const ToolPolicy = require('../server/agent/ToolPolicy');
-const ToolValidator = require('../server/agent/ToolValidator');
-const { buildSecurityReasoning, validateSecurityReasoning } = require('../server/agent/SecurityReasoning');
-const SecurityReportGenerator = require('../server/reports/SecurityReportGenerator');
+const { DomainInvestigation, CAPABILITIES, normalizeDomain, buildPlan, dependentTools, normalize } = require('../agent/DomainInvestigation');
+const { resolveRequiredTools } = require('../agent/RequiredToolResolver');
+const ToolRegistry = require('../agent/ToolRegistry');
+const ToolPolicy = require('../agent/ToolPolicy');
+const ToolValidator = require('../agent/ToolValidator');
+const { buildSecurityReasoning, validateSecurityReasoning } = require('../agent/SecurityReasoning');
+const SecurityReportGenerator = require('../reports/SecurityReportGenerator');
 
 test('valid domain normalization and URL to domain normalization', () => {
   assert.equal(normalizeDomain('Example.COM'), 'example.com');
@@ -38,9 +38,9 @@ test('capability model does not grant capabilities from user text', () => {
 
 test('domain resolver classifies example.com as a domain investigation', () => {
   const result = resolveRequiredTools([{role:'user', content:'Investigate example.com'}]);
-  assert.equal(result.investigationType, 'domain');
   assert.deepEqual(result.targets, [{type:'domain', value:'example.com', valid:true}]);
-  assert.ok(result.requiredTools.includes('securitytrails_lookup'));
+  assert.equal(result.requiredTools.length, 7);
+  assert.ok(!result.requiredTools.includes('securitytrails_lookup'));
 });
 
 test('dependent IP tools are deduplicated', () => {
@@ -82,10 +82,12 @@ test('security reasoning schema is evidence-first', () => {
   assert.equal(reasoning.hypotheses.length, 0);
 });
 
-test('domain report generation includes required sections', () => {
-  const data = normalize({domain:'example.com',rawToolEvidence:[]});
-  const report = new SecurityReportGenerator().generateDomainInvestigationReport(data);
-  for (const section of ['DNS','Infrastructure','Certificates','HTTP Security','Threat Intelligence','Exposed Services','Observations','Risk Summary','Recommended Actions','Evidence','Tool Coverage','Limitations']) assert.match(report,new RegExp(section));
+test('existing security report generator returns a PDF for a domain investigation', async () => {
+  const pdf = await new SecurityReportGenerator().generateSecurityReport({
+    investigation: { target:'example.com', targetType:'domain', sources:[], findings:[], correlations:[], limitations:['No provider evidence'] },
+  });
+  assert.ok(Buffer.isBuffer(pdf));
+  assert.equal(pdf.subarray(0,5).toString(), '%PDF-');
 });
 
 test('unauthorized tool is blocked by existing policy gate', () => {

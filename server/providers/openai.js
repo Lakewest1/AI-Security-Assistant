@@ -30,10 +30,10 @@ class OpenAIProvider extends BaseProvider {
     );
 
     if (options.stream) {
-      return response; // Return raw response for streaming
+      return this.limitResponseStream(response);
     }
 
-    const text = await response.text();
+    const text = await this.readResponseText(response);
     let data;
     try { data = JSON.parse(text); } catch { data = null; }
 

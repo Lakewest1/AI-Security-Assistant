@@ -55,12 +55,14 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { v4: uuidv4 } = require('uuid');
+const { isAllowedOrigin } = require('./CorsPolicy');
 
 /* =========================================================
    RELIABILITY COMPONENTS
 ========================================================= */
 
 const FallbackEngine = require('./FallbackEngine');
+const JevGeneralChatRouter = require('./agent/JevGeneralChatRouter');
 
 const {
   CircuitBreakerPool,
@@ -102,14 +104,30 @@ const ToolRegistry =
 const ToolPolicy =
   require('./agent/ToolPolicy');
 
+const { getRequestCapabilityContext } =
+  require('./agent/CapabilityContext');
+
+const { createSupabaseAuthMiddleware, createSupabaseTokenVerifier } =
+  require('./auth/SupabaseAuth');
+
+const requireAuthenticatedSupabaseUser = createSupabaseAuthMiddleware({
+  verifyAccessToken: createSupabaseTokenVerifier(),
+});
+
 const ToolValidator =
   require('./agent/ToolValidator');
 
 const AgentAuditLogger =
   require('./agent/AgentAuditLogger');
+const sanitizeLogValue = AgentAuditLogger.sanitizeLogValue;
+
+const crypto = require('crypto');
+const { readResponseBody } = require('./tools/external/provider-utils');
 
 const AgentLoop =
   require('./agent/AgentLoop');
+
+const { ProviderHealth } = require('./agent/ProviderHealth');
 
 const AgentOrchestrator =
   require('./agent/AgentOrchestrator');
@@ -120,6 +138,7 @@ const AgentOrchestrator =
 
 const {
   createVirusTotalTool,
+  toVirusTotalUrlId,
 } = require('./tools/external/virustotal');
 
 const {
@@ -579,6 +598,8 @@ const agentAuditLogger =
     prefix: 'agent',
   });
 
+const providerHealth = new ProviderHealth();
+
 const agentLoop =
   new AgentLoop({
     toolRegistry,
@@ -589,6 +610,8 @@ const agentLoop =
 
     auditLogger:
       agentAuditLogger,
+
+    providerHealth,
 
     maxIterations:
       Number(
@@ -623,7 +646,7 @@ const agentLoop =
 const virusTotalTool =
   createVirusTotalTool({
     apiKey:
-      process.env.VIRUSTOTAL_API_KEY,
+      cleanCredentialEnv('VIRUSTOTAL_API_KEY'),
   });
 
 virusTotalTool.targetTypes = ['ip'];
@@ -691,6 +714,9 @@ function createVirusTotalDomainTool({
     requiresApproval: false,
 
     async execute(input) {
+      const urlTarget = typeof input?.url === 'string' && input.url.trim()
+        ? input.url.trim()
+        : null;
       const domain = normalizeVirusTotalDomainTarget(input);
 
       if (!domain) {
@@ -721,8 +747,13 @@ function createVirusTotalDomainTool({
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
       try {
+        // URL input performs a read-only lookup of the existing URL object.
+        // It never submits a scan; domain input keeps the existing domain API.
+        const lookupUrl = urlTarget
+          ? `https://www.virustotal.com/api/v3/urls/${toVirusTotalUrlId(urlTarget)}`
+          : `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`;
         const response = await fetch(
-          `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`,
+          lookupUrl,
           {
             method: 'GET',
             headers: {
@@ -733,10 +764,16 @@ function createVirusTotalDomainTool({
           }
         );
 
-        let body = null;
+        let body;
         try {
-          body = await response.json();
-        } catch (_) {
+          body = await readResponseBody(response);
+        } catch (error) {
+          if (error?.category === 'response_too_large') {
+            return { ok: true, success: true, provider: 'virustotal', status: 'error', message: 'VirusTotal response exceeded the size limit', findings: {}, evidence: [] };
+          }
+          if (error?.category === 'response_body_unavailable') {
+            return { ok: true, success: true, provider: 'virustotal', status: 'unavailable', message: 'VirusTotal response body unavailable', findings: {}, evidence: [] };
+          }
           body = null;
         }
 
@@ -757,6 +794,9 @@ function createVirusTotalDomainTool({
           const stats = attributes.last_analysis_stats || {};
           const findings = Object.fromEntries(
             Object.entries({
+              target: urlTarget || domain,
+              targetType: urlTarget ? 'url' : 'domain',
+              url: urlTarget || undefined,
               domain,
               reputation: attributes.reputation,
               malicious: stats.malicious,
@@ -765,6 +805,9 @@ function createVirusTotalDomainTool({
               undetected: stats.undetected,
               timeout: stats.timeout,
               lastAnalysisDate: attributes.last_analysis_date,
+              lastAnalysisResults: attributes.last_analysis_results,
+              firstSubmissionDate: attributes.first_submission_date,
+              lastSubmissionDate: attributes.last_submission_date,
               registrar: attributes.registrar,
               categories: attributes.categories,
             }).filter(([, value]) => value !== undefined && value !== null)
@@ -828,7 +871,9 @@ function createVirusTotalDomainTool({
             success: true,
             provider: 'virustotal',
             status: 'not_found',
-            message: 'VirusTotal did not return the requested domain',
+            message: urlTarget
+              ? 'No existing VirusTotal URL analysis was found for this URL'
+              : 'VirusTotal did not return the requested domain',
             findings: {},
             evidence: [],
           };
@@ -874,6 +919,11 @@ toolRegistry.register(
   virusTotalDomainTool
 );
 
+toolRegistry.register({
+  ...virusTotalDomainTool,
+  name: 'virustotal_url_lookup',
+});
+
 /* =========================================================
    ABUSEIPDB
 ========================================================= */
@@ -881,7 +931,7 @@ toolRegistry.register(
 toolRegistry.register(
   createAbuseIPDBTool({
     apiKey:
-      process.env.ABUSEIPDB_API_KEY,
+      cleanCredentialEnv('ABUSEIPDB_API_KEY'),
 
     timeoutMs:
       Number(
@@ -902,7 +952,7 @@ toolRegistry.register(
 toolRegistry.register(
   createURLScanTool({
     apiKey:
-      process.env.URLSCAN_API_KEY,
+      cleanCredentialEnv('URLSCAN_API_KEY'),
 
     timeoutMs:
       Number(
@@ -918,7 +968,7 @@ toolRegistry.register(
 toolRegistry.register(
   createShodanTool({
     apiKey:
-      process.env.SHODAN_API_KEY,
+      cleanCredentialEnv('SHODAN_API_KEY'),
 
     timeoutMs:
       Number(
@@ -934,7 +984,7 @@ toolRegistry.register(
 toolRegistry.register(
   createIPInfoTool({
     token:
-      process.env.IPINFO_TOKEN,
+      cleanCredentialEnv('IPINFO_TOKEN'),
 
     timeoutMs:
       Number(
@@ -950,10 +1000,10 @@ toolRegistry.register(
 toolRegistry.register(
   createCensysTool({
     apiToken:
-      process.env.CENSYS_API_TOKEN,
+      cleanCredentialEnv('CENSYS_API_TOKEN'),
 
     organizationId:
-      process.env.CENSYS_ORGANIZATION_ID,
+      cleanCredentialEnv('CENSYS_ORGANIZATION_ID'),
 
     timeoutMs:
       Number(
@@ -966,12 +1016,12 @@ console.log(
   '[Censys] Configuration:',
   {
     token:
-      process.env.CENSYS_API_TOKEN
+      cleanCredentialEnv('CENSYS_API_TOKEN')
         ? 'SET'
         : 'MISSING',
 
     organizationId:
-      process.env.CENSYS_ORGANIZATION_ID
+      cleanCredentialEnv('CENSYS_ORGANIZATION_ID')
         ? 'SET'
         : 'EMPTY',
 
@@ -1071,10 +1121,16 @@ mozillaObservatoryTool.execute = async (input) => {
       signal: controller.signal,
     });
 
-    let payload = null;
+    let payload;
     try {
-      payload = await response.json();
-    } catch (_) {
+      payload = await readResponseBody(response);
+    } catch (error) {
+      if (error?.category === 'response_too_large') {
+        return { ok: false, success: false, provider: 'mozilla_observatory', status: 'error', collectedAt: new Date().toISOString(), message: 'Mozilla Observatory response exceeded the size limit', findings: {}, evidence: [] };
+      }
+      if (error?.category === 'response_body_unavailable') {
+        return { ok: false, success: false, provider: 'mozilla_observatory', status: 'unavailable', collectedAt: new Date().toISOString(), message: 'Mozilla Observatory response body unavailable', findings: {}, evidence: [] };
+      }
       payload = null;
     }
 
@@ -1180,7 +1236,7 @@ toolRegistry.register(
 toolRegistry.register(
   createViewDNSTool({
     apiKey:
-      process.env.VIEWDNS_API_KEY || '',
+      cleanCredentialEnv('VIEWDNS_API_KEY') || '',
 
     timeoutMs:
       Number(
@@ -1196,7 +1252,7 @@ toolRegistry.register(
 toolRegistry.register(
   createHIBPTool({
     apiKey:
-      process.env.HIBP_API_KEY,
+      cleanCredentialEnv('HIBP_API_KEY'),
 
     timeoutMs:
       Number(
@@ -1275,7 +1331,6 @@ toolRegistry.register(
 
 const phishingDatabaseTool =
   createPhishingDatabaseTool({
-    feedUrl: cleanCredentialEnv('PHISHING_DATABASE_FEED_URL'),
     timeoutMs:
       Number(process.env.PHISHING_DATABASE_TIMEOUT_MS) || 10000,
     refreshIntervalMs:
@@ -1339,6 +1394,7 @@ toolRegistry.register({
 
 const REPUTATION_TOOL_IDS = [
   'virustotal_domain_lookup',
+  'virustotal_url_lookup',
   'google-web-risk',
   'urlhaus',
   'phishing_database',
@@ -1431,6 +1487,14 @@ const AGENT_PROVIDERS = [
   groqAgentInstance,
 ].filter(Boolean);
 
+const anthropicKeyForDiagnostics = process.env.ANTHROPIC_API_KEY || '';
+console.info('[agent] provider_configuration', {
+  provider: 'Claude',
+  configured: Boolean(anthropicKeyForDiagnostics),
+  keyLength: anthropicKeyForDiagnostics.length,
+  endpoint: 'https://api.anthropic.com/v1/messages',
+});
+
 /* =========================================================
    AGENT ORCHESTRATOR
 ========================================================= */
@@ -1514,10 +1578,10 @@ app.use(
       origin,
       callback
     ) {
-      if (
-        !origin ||
-        corsOrigins.includes(origin)
-      ) {
+      // Vite can move to another local port when its default port is occupied.
+      // Permit loopback origins on any port only in development; production
+      // remains restricted to the configured CLIENT_URL values.
+      if (!origin || isAllowedOrigin(origin, { allowedOrigins: corsOrigins, nodeEnv: NODE_ENV })) {
         callback(
           null,
           true
@@ -1569,6 +1633,16 @@ app.use(
     next();
   }
 );
+
+// Keep the new workflow contract isolated from chat and investigation routes.
+const workflowRouter = require('./workflows/workflowRouter');
+app.use('/api/workflows', (req, res, next) => {
+  req.workflowAbortController = new AbortController();
+  res.once('close', () => {
+    if (!res.writableEnded) req.workflowAbortController.abort();
+  });
+  next();
+}, workflowRouter.createWorkflowRouter({ authMiddleware: requireAuthenticatedSupabaseUser }));
 
 /* =========================================================
    SSE HELPERS
@@ -2048,6 +2122,8 @@ app.get(
       providers:
         health.providers,
 
+      securityProviders: providerHealth.getAll(),
+
       agent: {
         configured:
           agentOrchestrator.isConfigured(),
@@ -2107,6 +2183,11 @@ app.get(
     });
   }
 );
+
+app.get('/api/provider-health', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ providers: providerHealth.getAll() });
+});
 
 /* =========================================================
    DIAGNOSTICS
@@ -2253,11 +2334,22 @@ app.post(
           userText
         );
 
-      const route =
+      const deterministicRoute =
         selectRoute(
           intents,
           userText
         );
+
+      const { route } =
+        await JevGeneralChatRouter.recommendRoute({
+          messages,
+          intents,
+          currentUserText:
+            typeof lastUserMessage.content === 'string'
+              ? lastUserMessage.content
+              : null,
+          deterministicRoute,
+        });
 
       console.log(
         `[${requestId}] Intent: ${
@@ -2386,7 +2478,7 @@ app.post(
     } catch (error) {
       console.error(
         `[${req.id}] Unexpected error:`,
-        error
+        sanitizeLogValue(error)
       );
 
       return res
@@ -2407,6 +2499,7 @@ app.post(
 app.post(
   '/api/agent',
   chatLimiter,
+  requireAuthenticatedSupabaseUser,
   async (req, res) => {
     const requestId =
       req.id;
@@ -2762,8 +2855,17 @@ app.post(
 
             requestId,
 
-            userContext: {},
+            userContext: getRequestCapabilityContext(req),
           });
+
+        console.info('[investigation] provider_execution_complete', {
+          requestId,
+          investigationId: result.investigation?.investigationId || requestId,
+          normalizedTarget: sanitizeLogValue(result.investigation?.target || null),
+          attemptedRequiredTools: result.attemptedRequiredTools || [],
+          completedRequiredTools: result.completedRequiredTools || [],
+          missingRequiredTools: result.missingRequiredTools || [],
+        });
 
         if (streamRequested) {
           sendSSE(
@@ -2792,7 +2894,7 @@ app.post(
 
         console.error(
           `[${requestId}] Agent failure:`,
-          agentError.message
+          sanitizeLogValue(agentError.message)
         );
 
         if (streamRequested) {
@@ -2908,6 +3010,13 @@ app.post(
           ? result.rawToolEvidence
           : [];
 
+      console.info('[investigation] evidence_normalization_complete', {
+        requestId,
+        investigationId: result.investigation?.investigationId || requestId,
+        normalizedTarget: sanitizeLogValue(result.investigation?.target || null),
+        evidenceCount: rawToolEvidence.length,
+      });
+
       const toolsUsed =
         Array.isArray(
           result.toolsUsed
@@ -2915,14 +3024,16 @@ app.post(
           ? result.toolsUsed
           : [];
 
+      const investigation =
+        result.investigation ||
+        null;
+
       const target =
+        investigation?.target ||
         [...messages]
           .reverse()
-          .find(
-            (message) =>
-              message.role ===
-              'user'
-          )?.content;
+          .find((message) => message.role === 'user')?.content ||
+        null;
 
       const requiredComplete =
         requiredTools.every(
@@ -2932,82 +3043,16 @@ app.post(
             )
         );
 
-      /* =====================================================
-         REQUIRED TOOL ENFORCEMENT
-      ===================================================== */
-
-      if (
-        requiredTools.length >
-          0 &&
-        !requiredComplete
-      ) {
-        console.error(
-          `[${requestId}] Required investigation tool was not attempted`,
-          {
-            requiredTools,
-            completedRequiredTools,
-            attemptedRequiredTools,
-            missingRequiredTools,
-          }
+      if (!requiredComplete) {
+        console.warn(
+          `[${requestId}] Investigation completed with unavailable required sources`,
+          { requiredTools, completedRequiredTools, attemptedRequiredTools, missingRequiredTools }
         );
-
-        if (streamRequested) {
-          sendSSE(
-            res,
-            'error',
-            {
-              error:
-                'Required investigation tool was not attempted',
-
-              requestId,
-
-              requiredTools,
-
-              attemptedRequiredTools,
-
-              missingRequiredTools,
-            }
-          );
-
-          streamFinished =
-            true;
-
-          return endSSE(res);
-        }
-
-        return res
-          .status(502)
-          .json({
-            error:
-              'Required investigation tool was not attempted',
-
-            metadata: {
-              agent: true,
-
-              toolMode: true,
-
-              requestId,
-
-              requiredTools,
-
-              completedRequiredTools,
-
-              toolsUsed,
-
-              attemptedRequiredTools,
-
-              missingRequiredTools,
-            },
-          });
       }
 
       /* =====================================================
          INVESTIGATION
       ===================================================== */
-
-      const investigation =
-        result.investigation ||
-        null;
 
       if (streamRequested) {
         sendSSE(
@@ -3083,7 +3128,7 @@ app.post(
          SECURITY ASSESSMENT
       ===================================================== */
 
-      const safeReply =
+      let safeReply =
         applySecurityAssessment(
           result.reply,
           {
@@ -3096,6 +3141,19 @@ app.post(
             investigation,
           }
         );
+
+      if (safeReply && result.reasoningStatus === 'fallback') {
+        safeReply += '\n\nAI reasoning was unavailable. This deterministic summary uses only the structured investigation evidence and does not fill missing provider data.';
+      }
+
+      console.info('[investigation] assessment_complete', {
+        requestId,
+        investigationId: investigation?.investigationId || requestId,
+        normalizedTarget: sanitizeLogValue(investigation?.target || target || null),
+        assessmentStatus: investigation?.risk?.overallAssessment || 'unknown',
+        environmentalRisk: investigation?.risk?.environmentalRisk || 'unknown',
+        confidence: investigation?.confidence?.level || 'unknown',
+      });
 
       if (!safeReply) {
         if (streamRequested) {
@@ -3242,7 +3300,33 @@ app.post(
 
         missingRequiredTools,
 
+        providerStatus: (investigation?.sources || []).map((source) => ({
+          provider: source.provider,
+          tool: source.tool,
+          status: source.status,
+          meaningful: source.meaningful,
+        })),
+
         investigation,
+
+        coverage: investigation?.coverage || null,
+
+        reasoningStatus: result.reasoningStatus || 'completed',
+
+        assessment: investigation
+          ? {
+              externalThreat: investigation.risk?.externalThreat || 'unknown',
+              externalThreatScore: investigation.risk?.score ?? null,
+              externalThreatFactors: investigation.risk?.factors || [],
+              environmentalRisk: investigation.risk?.environmentalRisk || 'unknown',
+              environmentalRiskScore: investigation.risk?.environmentalRisk === 'unknown' ? null : (investigation.risk?.environmentalRiskScore ?? null),
+              investigationConfidence: {
+                score: investigation.confidence?.score ?? null,
+                level: investigation.confidence?.level || 'unknown',
+              },
+              limitations: investigation.limitations || [],
+            }
+          : null,
 
         stopReason:
           result.stopReason ||
@@ -3268,6 +3352,13 @@ app.post(
           duration,
 
         requestId,
+
+        investigationId:
+          investigation?.investigationId || requestId,
+
+        target,
+
+        targetIdentity: investigation?.targetIdentity || null,
 
         conversationId:
           conversationId ||
@@ -3315,6 +3406,12 @@ app.post(
           }
         );
 
+        console.info('[investigation] response_serialization_complete', {
+          requestId,
+          investigationId: investigation?.investigationId || requestId,
+          normalizedTarget: sanitizeLogValue(investigation?.target || target || null),
+        });
+
         /*
          * IMPORTANT:
          *
@@ -3341,6 +3438,12 @@ app.post(
          NORMAL JSON MODE
       ===================================================== */
 
+      console.info('[investigation] response_serialization_complete', {
+        requestId,
+        investigationId: investigation?.investigationId || requestId,
+        normalizedTarget: sanitizeLogValue(investigation?.target || target || null),
+      });
+
       return res.json({
         reply:
           safeReply,
@@ -3350,7 +3453,7 @@ app.post(
     } catch (error) {
       console.error(
         `[${requestId}] Unexpected agent error:`,
-        error.message
+        sanitizeLogValue(error.message)
       );
 
       if (
@@ -3415,6 +3518,7 @@ app.post(
 
 app.post(
   "/api/security-report",
+  chatLimiter,
   async (req, res) => {
     try {
       const {
@@ -3434,20 +3538,33 @@ app.post(
         });
       }
 
+      const reportId = crypto.randomUUID();
       const pdf = await generateSecurityReport({
         investigation: investigation || metadata?.investigation || null,
         metadata,
         target,
         requestId,
+        reportId,
+      });
+      res.setHeader('X-Report-Id', reportId);
+
+      console.info('[investigation] report_generation_complete', {
+        requestId: requestId || req.id,
+        reportId,
+        investigationId: (investigation || metadata?.investigation)?.investigationId || requestId || req.id,
+        normalizedTarget: sanitizeLogValue((investigation || metadata?.investigation)?.target || target || null),
+        success: true,
       });
 
-      const safeTarget =
-        String(
-          target ||
-            investigation?.target ||
-            metadata?.target ||
-            "security-investigation"
-        )
+      const reportTarget = String(
+        target ||
+          investigation?.target ||
+          metadata?.target ||
+          "security-investigation"
+      );
+      const safeTarget = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(reportTarget)
+        ? "email-investigation"
+        : reportTarget
           .replace(
             /[^a-zA-Z0-9._-]/g,
             "-"
@@ -3478,7 +3595,7 @@ app.post(
     } catch (error) {
       console.error(
         "[SECURITY REPORT] Generation failed:",
-        error
+        sanitizeLogValue(error)
       );
 
       return res.status(500).json({
@@ -3538,6 +3655,32 @@ app.use(
     res,
     next
   ) => {
+    if (req.path === '/api/workflows' || req.path.startsWith('/api/workflows/')) {
+      const isTooLarge = err?.type === 'entity.too.large';
+      const isInvalidBody = err?.type === 'entity.parse.failed'
+        || err?.type === 'request.size.invalid'
+        || err?.type === 'encoding.unsupported'
+        || err?.type === 'charset.unsupported';
+      const statusCode = isTooLarge ? 413 : isInvalidBody ? 400 : 500;
+      const code = isTooLarge ? 'REQUEST_TOO_LARGE' : isInvalidBody ? 'INVALID_REQUEST_BODY' : 'WORKFLOW_REQUEST_FAILED';
+      const message = isTooLarge
+        ? 'Workflow request body exceeds the maximum size.'
+        : isInvalidBody
+          ? 'Workflow request body is invalid.'
+          : 'Workflow request could not be processed.';
+
+      return res.status(statusCode).json({
+        schemaVersion: 1,
+        mode: null,
+        status: 'error',
+        result: null,
+        sources: [],
+        limitations: [],
+        metadata: { requestId: req.id || null, executionStatus: 'not_started' },
+        error: { code, message },
+      });
+    }
+
     console.error(
       'Error:',
       err
@@ -3562,6 +3705,7 @@ app.use(
    START SERVER
 ========================================================= */
 
+if (require.main === module) {
 const server =
   app.listen(
     PORT,
@@ -3755,6 +3899,7 @@ process.on(
     );
   }
 );
+}
 
 /* =========================================================
    EXPORT

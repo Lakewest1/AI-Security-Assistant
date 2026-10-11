@@ -6,6 +6,7 @@
  * Phase 1 permits only read-only tools. Controller-enforced execution
  * is therefore also restricted to tools with riskLevel === "read".
  */
+const { isTrustedCapabilityContext } = require("./CapabilityContext");
 
 class ToolPolicy {
   constructor(options = {}) {
@@ -32,8 +33,8 @@ class ToolPolicy {
     }
 
     if (tool.requiredCapability) {
-      const capabilities = Array.isArray(userContext?.capabilities) ? userContext.capabilities : null;
-      if (capabilities && !capabilities.includes(tool.requiredCapability)) {
+      const capabilities = userContext?.capabilities;
+      if (!isTrustedCapabilityContext(userContext) || !Array.isArray(capabilities) || !capabilities.includes(tool.requiredCapability)) {
         return { allowed: false, reason: `capability "${tool.requiredCapability}" is not authorized` };
       }
     }

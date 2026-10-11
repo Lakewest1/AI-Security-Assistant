@@ -4,6 +4,7 @@
  * API credentials are server-side only. Provider data is untrusted evidence.
  */
 const net = require("net");
+const { readResponseBody } = require("./provider-utils");
 
 const DEFAULT_TIMEOUT_MS = Number(process.env.ABUSEIPDB_TIMEOUT_MS) || 8000;
 const DEFAULT_MAX_AGE_DAYS = Number(process.env.ABUSEIPDB_MAX_AGE_DAYS) || 90;
@@ -39,12 +40,7 @@ async function request(url, apiKey, timeoutMs) {
       signal: controller.signal,
     });
 
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = null;
-    }
+    const body = await readResponseBody(response);
     return { response, body };
   } catch (error) {
     if (error?.name === "AbortError") {
@@ -147,7 +143,7 @@ function createAbuseIPDBTool({ apiKey, timeoutMs = DEFAULT_TIMEOUT_MS, maxAgeInD
 
         return publicError("error", `AbuseIPDB returned HTTP ${statusCode}`);
       } catch (error) {
-        if (error?.category === "tool_timeout") throw error;
+        if (error?.category === "tool_timeout" || error?.category === "response_too_large" || error?.category === "response_body_unavailable") throw error;
         const wrapped = new Error("AbuseIPDB network request failed");
         wrapped.category = "network_error";
         throw wrapped;

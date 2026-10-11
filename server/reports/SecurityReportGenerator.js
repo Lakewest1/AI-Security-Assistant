@@ -1,8 +1,10 @@
 "use strict";
 
 const PDFDocument = require("pdfkit");
+const { normalizeTimestamp: normalizeProviderTimestamp } = require("../agent/Timestamps");
 const crypto = require("crypto");
 const { deriveFinalInvestigationAssessment } = require("../agent/SecurityAssessment");
+const { buildCurator } = require("../agent/InvestigationNarrative");
 
 const PAGE = {
   width: 595.28,
@@ -64,6 +66,8 @@ const PROVIDER_LABELS = {
 const TERMINAL_NON_EVIDENCE_STATUSES = new Set([
   "timeout",
   "unauthorized",
+  "forbidden",
+  "invalid_request",
   "error",
   "failed",
   "unavailable",
@@ -225,20 +229,8 @@ function levelStyle(level) {
 }
 
 function normalizeTimestamp(value) {
-  if (value === undefined || value === null || value === "") return null;
-  let numeric = null;
-  if (typeof value === "number" && Number.isFinite(value)) numeric = value;
-  else if (typeof value === "string" && /^\d+(?:\.\d+)?$/.test(value.trim())) numeric = Number(value.trim());
-
-  if (numeric !== null) {
-    const milliseconds = numeric < 1e12 ? numeric * 1000 : numeric;
-    if (!Number.isFinite(milliseconds) || milliseconds <= 0) return null;
-    const date = new Date(milliseconds);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const normalized = normalizeProviderTimestamp(value);
+  return normalized ? new Date(normalized) : null;
 }
 
 function formatDate(value) {
@@ -304,10 +296,16 @@ function deriveConfidenceLevel(investigation) {
 function deriveCoverage(investigation) {
   const assessment = getCanonicalAssessment(investigation);
   const [meaningful, total] = String(assessment.meaningfulCoverage || "0/0").split("/").map(Number);
+  const canonical = investigation?.coverage && typeof investigation.coverage === "object" ? investigation.coverage : {};
   return {
-    meaningful: Number.isFinite(meaningful) ? meaningful : 0,
-    total: Number.isFinite(total) ? total : 0,
-    consulted: assessment.consultedSourceCount || 0,
+    meaningful: Number.isFinite(Number(canonical.meaningful)) ? Number(canonical.meaningful) : (Number.isFinite(meaningful) ? meaningful : 0),
+    total: Number.isFinite(Number(canonical.planned)) && Number(canonical.planned) > 0 ? Number(canonical.planned) : (Number.isFinite(total) ? total : 0),
+    consulted: Number.isFinite(Number(canonical.consulted)) ? Number(canonical.consulted) : (assessment.consultedSourceCount || 0),
+    successful: Number(canonical.successful) || 0,
+    noMatch: Number(canonical.noMatch) || 0,
+    failed: Number(canonical.failed) || 0,
+    unavailable: Number(canonical.unavailable) || 0,
+    contextual: Number(canonical.contextual) || 0,
     label: assessment.evidenceCoverage || "none",
   };
 }
@@ -317,6 +315,8 @@ function buildSourceSummary(investigation) {
     label: providerLabel(source),
     status: sourceStatus(source),
     meaningful: sourceHasCanonicalMeaningful(source),
+    freshness: source?.quality?.freshness?.status || source?.freshness || "unknown",
+    analysisAt: source?.analysisAt || source?.providerAnalysisAt || source?.observedAt || source?.providerObservedAt || null,
   }));
 }
 
@@ -603,6 +603,10 @@ function providerRows(source, investigation) {
 function buildEvidenceGroups(investigation) {
   const groups = [];
   for (const source of getSources(investigation)) {
+    // No-match results remain visible in the provider status table. They are
+    // deliberately excluded from Key Evidence so absence of a match is not
+    // presented as a positive security observation.
+    if (!sourceHasCanonicalMeaningful(source)) continue;
     if (!sourceCanShowEvidence(source)) continue;
     const rows = providerRows(source, investigation);
     if (!rows.length) continue;
@@ -617,45 +621,8 @@ function buildEvidenceGroups(investigation) {
     .slice(0, 6);
 }
 
-function buildWhyThisMatters(investigation) {
-  const reasons = [];
-  const vt = findSource(investigation, "virustotal");
-  if (vt && sourceCanShowEvidence(vt)) {
-    const e = getVirusTotalEvidence(vt);
-    if (e.malicious !== undefined) reasons.push(`VirusTotal reported ${e.malicious} malicious detection${Number(e.malicious) === 1 ? "" : "s"}.`);
-    if (e.suspicious !== undefined && Number(e.suspicious) > 0) reasons.push(`VirusTotal also reported ${e.suspicious} suspicious detection${Number(e.suspicious) === 1 ? "" : "s"}.`);
-  }
-  const abuse = findSource(investigation, "abuseipdb");
-  if (abuse && sourceCanShowEvidence(abuse)) {
-    const e = getAbuseIPDBEvidence(abuse);
-    if (e.abuseConfidenceScore !== undefined) reasons.push(`AbuseIPDB reported an abuse confidence score of ${e.abuseConfidenceScore}%.`);
-    if (e.totalReports !== undefined) reasons.push(`AbuseIPDB recorded ${e.totalReports} reported abuse case${Number(e.totalReports) === 1 ? "" : "s"}.`);
-  }
-  const censys = findSource(investigation, "censys");
-  if (censys && sourceCanShowEvidence(censys)) {
-    const e = getCensysEvidence(censys);
-    const tor = e.isTor === true || e.isTor === "true";
-    const proxy = e.isProxy === true || e.isProxy === "true";
-    if (tor || proxy) reasons.push(`Censys identified ${tor ? "Tor" : "proxy"}-related infrastructure.`);
-  }
-  const urlscan = findSource(investigation, "urlscan");
-  const vtEvidence = vt && sourceCanShowEvidence(vt) ? getVirusTotalEvidence(vt) : {};
-  const phishing = findSource(investigation, "phishing_database");
-  const urlhaus = findSource(investigation, "urlhaus");
-  const threatfox = findSource(investigation, "threatfox");
-  const noStrongReputation =
-    (vtEvidence.malicious === undefined || Number(vtEvidence.malicious) === 0) &&
-    (vtEvidence.suspicious === undefined || Number(vtEvidence.suspicious) === 0) &&
-    (!phishing || !sourceCanShowEvidence(phishing) || firstFinding(phishing).match !== true) &&
-    (!urlhaus || !sourceCanShowEvidence(urlhaus) || firstFinding(urlhaus).match !== true) &&
-    (!threatfox || !sourceCanShowEvidence(threatfox) || !Array.isArray(firstFinding(threatfox).matches) || firstFinding(threatfox).matches.length === 0);
-  if (noStrongReputation && urlscan && sourceCanShowEvidence(urlscan)) {
-    const e = getURLScanEvidence(urlscan);
-    if (e.totalResults !== undefined) reasons.push(`Available external intelligence did not identify a confirmed phishing or malware match. URLScan returned ${e.totalResults} result${Number(e.totalResults) === 1 ? "" : "s"}.`);
-  } else {
-    reasons.push("These are external intelligence signals and do not by themselves prove compromise, successful exploitation, or impact inside the environment.");
-  }
-  return dedupe(reasons).slice(0, 4);
+function buildWhyThisMatters(narrative) {
+  return [narrative?.whatMatters].filter((item) => typeof item === "string" && item.trim());
 }
 
 function buildAssessmentSentence({ externalThreat, environmentalRisk }) {
@@ -697,6 +664,8 @@ function limitationText(item) {
 
 function buildKeyLimitations({ investigation, environmentalRisk }) {
   const limitations = [];
+  const staleSources = getSources(investigation).filter((source) => (source?.quality?.freshness?.status || source?.freshness) === "stale");
+  if (staleSources.length) limitations.push(`STALE historical evidence from ${dedupe(staleSources.map(providerLabel)).join(", ")} does not establish current malicious activity.`);
   if (environmentalRisk === "unknown") limitations.push("The investigation could not establish environmental impact without supporting internal telemetry.");
   const failedSources = getSources(investigation)
     .filter((source) => TERMINAL_NON_EVIDENCE_STATUSES.has(sourceStatus(source)))
@@ -829,25 +798,27 @@ function drawMetricRow(doc, riskScore, confidenceScore, confidenceLevel, coverag
   const y = 249;
   const gap = SPACING.cardGap;
   const width = (PAGE.contentWidth - gap * 2) / 3;
-  const height = 51;
+  const height = 59;
 
   drawCard(doc, { x: PAGE.margin, y, width, height });
   drawText(doc, "RISK SCORE", PAGE.margin + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
   drawText(doc, riskScore === null ? "Unknown" : `${riskScore}/100`, PAGE.margin + 11, y + 21, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.slate });
-  drawText(doc, "Risk score from the investigation.", PAGE.margin + 11, y + 38, width - 22, { size: 6.4, color: COLORS.muted });
+  drawText(doc, "External-threat severity heuristic; not a probability.", PAGE.margin + 11, y + 38, width - 22, { size: 6.1, color: COLORS.muted });
 
   const confidenceX = PAGE.margin + width + gap;
   drawCard(doc, { x: confidenceX, y, width, height });
   drawText(doc, "CONFIDENCE", confidenceX + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
   const confidenceText = confidenceScore === null ? "Unknown" : `${confidenceScore}% - ${humanize(confidenceLevel)}`;
   drawText(doc, confidenceText, confidenceX + 11, y + 21, width - 22, { font: "Helvetica-Bold", size: 10.5, color: COLORS.slate });
-  drawText(doc, "Confidence based on the available evidence.", confidenceX + 11, y + 38, width - 22, { size: 6.4, color: COLORS.muted });
+  drawText(doc, "Evidence-quality heuristic; not a probability.", confidenceX + 11, y + 38, width - 22, { size: 6.1, color: COLORS.muted });
 
   const coverageX = confidenceX + width + gap;
   drawCard(doc, { x: coverageX, y, width, height });
   drawText(doc, "MEANINGFUL COVERAGE", coverageX + 11, y + 8, width - 22, { font: "Helvetica-Bold", size: 6.6, color: COLORS.muted });
   drawText(doc, `${coverage.meaningful}/${coverage.total}`, coverageX + 11, y + 20, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.blue });
   drawText(doc, `${coverage.consulted} consulted`, coverageX + 11, y + 37, width - 22, { size: 6.4, color: COLORS.muted });
+  drawText(doc, `${coverage.successful} successful · ${coverage.meaningful} meaningful · ${coverage.noMatch} no-match`, coverageX + 11, y + 46, width - 22, { size: 5.4, color: COLORS.muted });
+  drawText(doc, `${coverage.failed} failed/unavailable · ${coverage.contextual} contextual`, coverageX + 11, y + 54, width - 22, { size: 5.4, color: COLORS.muted });
 }
 
 function drawWrappedBulletList(doc, items, x, y, width, fontSize = 7.3, maxItems = items.length) {
@@ -949,22 +920,25 @@ function drawConfidenceCoveragePage2(doc, confidence, confidenceScore, confidenc
   drawSectionTitle(doc, "Confidence & Coverage", PAGE.margin, y);
   const gap = 7;
   const width = (PAGE.contentWidth - gap) / 2;
-  const height = 56;
+  const height = 70;
   drawCard(doc, { x: PAGE.margin, y: y + 16, width, height });
   drawText(doc, "OVERALL CONFIDENCE", PAGE.margin + 11, y + 25, width - 22, { font: "Helvetica-Bold", size: 6.5, color: COLORS.muted });
   drawText(doc, confidenceScore === null ? humanize(confidence) : `${confidenceScore}% - ${humanize(confidenceLevel)}`, PAGE.margin + 11, y + 38, width - 22, { font: "Helvetica-Bold", size: 10.5, color: COLORS.slate });
+  drawText(doc, "Evidence-quality heuristic, not a probability.", PAGE.margin + 11, y + 54, width - 22, { size: 6.1, color: COLORS.muted });
 
   const x = PAGE.margin + width + gap;
   drawCard(doc, { x, y: y + 16, width, height });
   drawText(doc, "MEANINGFUL COVERAGE", x + 11, y + 25, width - 22, { font: "Helvetica-Bold", size: 6.5, color: COLORS.muted });
   drawText(doc, `${coverage.meaningful}/${coverage.total}`, x + 11, y + 38, width - 22, { font: "Helvetica-Bold", size: 12, color: COLORS.blue });
-  drawText(doc, `${coverage.consulted} consulted`, x + 88, y + 40, width - 100, { size: 6.5, color: COLORS.muted, align: "right" });
+  drawText(doc, "meaningful evidence sources", x + 88, y + 40, width - 100, { size: 6.5, color: COLORS.muted, align: "right" });
+  drawText(doc, `${coverage.consulted} consulted · ${coverage.successful} successful · ${coverage.noMatch} no-match`, x + 11, y + 59, width - 22, { size: 6.2, color: COLORS.muted });
+  drawText(doc, `${coverage.failed} failed/unavailable · ${coverage.contextual} contextual`, x + 11, y + 69, width - 22, { size: 6.2, color: COLORS.muted });
 }
 
 function statusStyle(status) {
   if (status === "success") return { color: COLORS.green, background: COLORS.greenLight };
   if (status === "partial") return { color: COLORS.amber, background: COLORS.amberLight };
-  if (["timeout", "error", "failed", "unauthorized"].includes(status)) return { color: COLORS.red, background: COLORS.redLight };
+  if (["timeout", "error", "failed", "unauthorized", "forbidden", "invalid_request"].includes(status)) return { color: COLORS.red, background: COLORS.redLight };
   return { color: COLORS.muted, background: COLORS.background };
 }
 
@@ -979,17 +953,22 @@ function drawSourceTable(doc, sourceSummary) {
   drawCard(doc, { x: PAGE.margin, y: tableY, width: PAGE.contentWidth, height: height + 1, background: COLORS.white, border: COLORS.border });
   doc.rect(PAGE.margin, tableY, PAGE.contentWidth, headerHeight).fill(COLORS.background);
   const sourceX = PAGE.margin + 9;
-  const statusX = PAGE.margin + 255;
-  const meaningfulX = PAGE.margin + 390;
-  drawText(doc, "SOURCE", sourceX, tableY + 7, 235, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
-  drawText(doc, "STATUS", statusX, tableY + 7, 110, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
-  drawText(doc, "MEANINGFUL", meaningfulX, tableY + 7, 95, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  const statusX = PAGE.margin + 180;
+  const meaningfulX = PAGE.margin + 285;
+  const freshnessX = PAGE.margin + 380;
+  drawText(doc, "SOURCE", sourceX, tableY + 7, 165, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  drawText(doc, "STATUS", statusX, tableY + 7, 96, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  drawText(doc, "MEANINGFUL", meaningfulX, tableY + 7, 88, { font: "Helvetica-Bold", size: 6.2, color: COLORS.muted });
+  drawText(doc, "FRESHNESS / ANALYSIS", freshnessX, tableY + 7, 120, { font: "Helvetica-Bold", size: 5.6, color: COLORS.muted });
   rows.forEach((source, index) => {
     const rowY = tableY + headerHeight + index * rowHeight;
     if (index % 2 === 1) doc.rect(PAGE.margin, rowY, PAGE.contentWidth, rowHeight).fill("#FCFDFE");
-    drawText(doc, source.label, sourceX, rowY + 5, 235, { size: 6.8, color: COLORS.slate });
+    drawText(doc, source.label, sourceX, rowY + 5, 165, { size: 6.8, color: COLORS.slate });
     drawStatusPill(doc, humanize(source.status), statusX, rowY + 1.5, statusStyle(source.status), 96);
-    drawText(doc, source.meaningful ? "Yes" : "No", meaningfulX, rowY + 5, 95, { font: "Helvetica-Bold", size: 6.8, color: source.meaningful ? COLORS.green : COLORS.muted });
+    drawText(doc, source.meaningful ? "Yes" : "No", meaningfulX, rowY + 5, 88, { font: "Helvetica-Bold", size: 6.8, color: source.meaningful ? COLORS.green : COLORS.muted });
+    const parsedDate = source.analysisAt ? new Date(source.analysisAt) : null;
+    const analysis = parsedDate && Number.isFinite(parsedDate.getTime()) ? parsedDate.toISOString().slice(0, 10) : "date unknown";
+    drawText(doc, `${humanize(source.freshness)} · ${analysis}`, freshnessX, rowY + 5, 120, { size: 5.8, color: source.freshness === "stale" ? COLORS.amber : COLORS.muted });
   });
 }
 
@@ -1052,7 +1031,7 @@ function createPdfBuffer(build) {
   });
 }
 
-async function generateSecurityReport({ investigation, metadata = {}, target, requestId } = {}) {
+async function generateSecurityReport({ investigation, metadata = {}, target, requestId, reportId } = {}) {
   if (!investigation || typeof investigation !== "object") throw new Error("A canonical investigation object is required.");
 
   const resolvedTarget = getTarget({ investigation, metadata, target });
@@ -1065,16 +1044,17 @@ async function generateSecurityReport({ investigation, metadata = {}, target, re
   const riskScore = deriveRiskScore(investigation);
   const coverage = deriveCoverage(investigation);
   const sourceSummary = buildSourceSummary(investigation);
-  const whyThisMatters = buildWhyThisMatters(investigation);
+  const narrative = investigation.curator || buildCurator(investigation);
+  const whyThisMatters = buildWhyThisMatters(narrative);
   const evidenceGroups = buildEvidenceGroups(investigation);
   const recommendations = buildRecommendations({ externalThreat, environmentalRisk });
   const limitations = buildKeyLimitations({ investigation, environmentalRisk });
   const assessment = buildAssessmentSentence({ externalThreat, environmentalRisk });
-  const reportId = requestId || metadata.requestId || crypto.randomUUID();
+  const resolvedReportId = reportId || metadata.reportId || crypto.randomUUID();
   const generatedAt = new Date();
 
   return createPdfBuffer((doc) => {
-    drawHeader(doc, { target: resolvedTarget, targetType, reportId, generatedAt });
+    drawHeader(doc, { target: resolvedTarget, targetType, reportId: resolvedReportId, generatedAt });
     drawAssessmentCards(doc, externalThreat, environmentalRisk);
     drawMetricRow(doc, riskScore, confidenceScore, confidenceLevel, coverage);
     drawText(doc, "ASSESSMENT", PAGE.margin, 310, PAGE.contentWidth, { font: "Helvetica-Bold", size: 8.5, color: COLORS.navy });
@@ -1090,6 +1070,34 @@ async function generateSecurityReport({ investigation, metadata = {}, target, re
     drawLimitations(doc, limitations);
     drawCrossSourceAnalysis(doc, investigation);
     drawPage2Bottom(doc);
+
+    if (narrative) {
+      doc.addPage();
+      drawSectionTitle(doc, "Lakewest AI Investigation Narrative — Deterministic Evidence Summary", PAGE.margin, 45);
+      drawText(doc, "Evidence-bound interpretation derived from the canonical investigation.", PAGE.margin, 61, PAGE.contentWidth, { size: 7, color: COLORS.muted });
+      const sections = [
+        ["WHAT MATTERS", narrative.whatMatters],
+        ["IMPORTANT CONTEXT", narrative.importantContext],
+        ["WHAT REMAINS UNKNOWN", narrative.whatWeDoNotKnow],
+        ["RECOMMENDED NEXT STEP", narrative.recommendedNextStep],
+      ];
+      if (narrative.freshnessNote) sections.splice(3, 0, ["FRESHNESS", narrative.freshnessNote]);
+      let y = 84;
+      for (const [title, text] of sections) {
+        const content = safeString(text);
+        const height = measureTextHeight(content, PAGE.contentWidth - 24, 8);
+        if (y + height + 26 > PAGE.contentBottom) {
+          doc.addPage();
+          y = 45;
+        }
+        drawCard(doc, { x: PAGE.margin, y, width: PAGE.contentWidth, height: height + 24, background: COLORS.background, border: COLORS.border });
+        drawText(doc, title, PAGE.margin + 12, y + 7, PAGE.contentWidth - 24, { font: "Helvetica-Bold", size: 6.5, color: COLORS.blue });
+        drawText(doc, content, PAGE.margin + 12, y + 18, PAGE.contentWidth - 24, { size: 8, color: COLORS.slate, lineGap: 1 });
+        y += height + 32;
+      }
+      const confidence = narrative.confidence || {};
+      drawText(doc, `CONFIDENCE   Evidence: ${confidence.evidence || "Unknown"}   ·   Current status: ${confidence.currentStatus || "Unknown"}   ·   Environmental impact: ${confidence.environmentalImpact || "Unknown"}`, PAGE.margin, y + 4, PAGE.contentWidth, { font: "Helvetica-Bold", size: 7, color: COLORS.navy });
+    }
   });
 }
 
@@ -1102,6 +1110,7 @@ class SecurityReportGenerator {
 module.exports = SecurityReportGenerator;
 module.exports.SecurityReportGenerator = SecurityReportGenerator;
 module.exports.generateSecurityReport = generateSecurityReport;
+module.exports.normalizeTimestamp = normalizeTimestamp;
 
 // A tiny PDFKit measurement document is reused only for height calculations.
 // It is never emitted as a report page.

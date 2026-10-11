@@ -23,6 +23,63 @@ const SECRET_KEYS =
 const SECRET_NAME_PATTERN =
   /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|client[-_]?secret|password|cookie|secret)/i;
 
+const SENSITIVE_QUERY_KEY = /^(?:token|access_token|refresh_token|api[_-]?key|key|password|secret|authorization|signature)$/i;
+const EMAIL_PATTERN = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
+
+function redactText(value) {
+  let text = String(value);
+  // Parse complete URL-like tokens to correctly handle encoded values and
+  // multiple query parameters. The fallback below also handles malformed URLs.
+  text = text.replace(/https?:\/\/[^\s"'<>]+/gi, (raw) => {
+    const suffix = /[),.;]+$/.exec(raw)?.[0] || "";
+    const candidate = suffix ? raw.slice(0, -suffix.length) : raw;
+    try {
+      const url = new URL(candidate);
+      if (url.username || url.password) {
+        url.username = "[REDACTED]";
+        url.password = "[REDACTED]";
+      }
+      for (const key of [...url.searchParams.keys()]) {
+        if (SENSITIVE_QUERY_KEY.test(key)) url.searchParams.set(key, "[REDACTED]");
+      }
+      return url.toString() + suffix;
+    } catch {
+      return candidate
+        .replace(/(https?:\/\/)[^/@\s]+:[^/@\s]+@/i, "$1[REDACTED]@")
+        .replace(/([?&](?:token|access_token|refresh_token|api[_-]?key|key|password|secret|authorization|signature)=)[^&#\s]*/gi, "$1[REDACTED]") + suffix;
+    }
+  });
+  return text.replace(EMAIL_PATTERN, "[REDACTED_EMAIL]");
+}
+
+function sanitizeLogValue(value, depth = 0, seen = new WeakSet()) {
+  if (depth > 6) return "[redacted-depth]";
+  if (typeof value === "string") return redactText(value);
+  if (typeof value === "number" || typeof value === "boolean" || value == null) return value;
+  if (typeof value !== "object") return String(value);
+  if (seen.has(value)) return "[circular]";
+  seen.add(value);
+  if (value instanceof Error) {
+    const safe = { name: value.name, message: redactText(value.message) };
+    for (const key of ["category", "code", "status", "statusCode"]) {
+      if (value[key] !== undefined && ["string", "number"].includes(typeof value[key])) safe[key] = sanitizeLogValue(value[key], depth + 1, seen);
+    }
+    return safe;
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeLogValue(item, depth + 1, seen));
+  const out = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (SECRET_KEYS.test(key) || SECRET_NAME_PATTERN.test(key)) {
+      out[key] = "[REDACTED]";
+    } else if (/^(config|request|response|headers|body|data)$/i.test(key)) {
+      out[key] = "[omitted]";
+    } else {
+      out[key] = sanitizeLogValue(child, depth + 1, seen);
+    }
+  }
+  return out;
+}
+
 function redact(value, depth = 0) {
   if (depth > 6) {
     return "[redacted-depth]";
@@ -35,7 +92,7 @@ function redact(value, depth = 0) {
   }
 
   if (!value || typeof value !== "object") {
-    return value;
+    return typeof value === "string" ? redactText(value) : value;
   }
 
   const out = {};
@@ -49,10 +106,7 @@ function redact(value, depth = 0) {
       continue;
     }
 
-    out[key] = redact(
-      child,
-      depth + 1
-    );
+    out[key] = sanitizeLogValue(child, depth + 1);
   }
 
   return out;
@@ -317,4 +371,6 @@ class AgentAuditLogger {
   }
 }
 
+AgentAuditLogger.sanitizeLogValue = sanitizeLogValue;
+AgentAuditLogger.redactText = redactText;
 module.exports = AgentAuditLogger;
